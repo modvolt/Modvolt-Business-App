@@ -150,6 +150,56 @@ adminRouter.get("/audit", async (req, res) => {
   res.json({ logs: rows });
 });
 
+// --- Report tvrdého zámku ČSN ---
+// Které reálné dotazy byly vynuceně přepnuty na csn_only a co to spustilo.
+// Slouží adminovi k ladění seznamu klíčových slov (false positives/negatives).
+adminRouter.get("/csn-lock-queries", async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const rows = await db
+    .select({
+      id: searchQueries.id,
+      query: searchQueries.query,
+      mode: searchQueries.mode,
+      sourceMode: searchQueries.sourceMode,
+      csnLockTrigger: searchQueries.csnLockTrigger,
+      createdAt: searchQueries.createdAt,
+      userName: users.name,
+    })
+    .from(searchQueries)
+    .leftJoin(users, eq(users.id, searchQueries.userId))
+    .where(eq(searchQueries.csnLockTriggered, true))
+    .orderBy(desc(searchQueries.createdAt))
+    .limit(limit);
+
+  const [total] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .where(eq(searchQueries.csnLockTriggered, true));
+
+  const [total30d] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .where(
+      sql`${searchQueries.csnLockTriggered} = true and ${searchQueries.createdAt} >= now() - interval '30 days'`,
+    );
+
+  // Nejčastější spouštěče (klíčová slova / vzory), které zámek aktivovaly.
+  const topTriggers = await db
+    .select({
+      trigger: searchQueries.csnLockTrigger,
+      c: sql<number>`count(*)::int`,
+    })
+    .from(searchQueries)
+    .where(
+      sql`${searchQueries.csnLockTriggered} = true and ${searchQueries.csnLockTrigger} is not null`,
+    )
+    .groupBy(searchQueries.csnLockTrigger)
+    .orderBy(desc(sql`count(*)`))
+    .limit(20);
+
+  res.json({ queries: rows, total: total.c, total30d: total30d.c, topTriggers });
+});
+
 // --- Statistiky (dashboard) ---
 adminRouter.get("/stats", async (_req, res) => {
   const [docCount] = await db.select({ c: sql<number>`count(*)::int` }).from(documents);

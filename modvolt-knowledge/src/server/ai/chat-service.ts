@@ -32,6 +32,10 @@ export interface AskResult {
   usedWebSearch: boolean;
   promptVersion: string;
   model: string;
+  // Tvrdý zámek ČSN: zda byl dotaz vynuceně přepnut na csn_only a co to spustilo.
+  sourceModeLocked: boolean;
+  csnLockTrigger?: string;
+  csnLockTriggerType?: "keyword" | "builtin";
 }
 
 export function aiChatAvailable(): boolean {
@@ -171,6 +175,9 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
     usedWebSearch: webResults.length > 0,
     promptVersion,
     model: env.openai.chatModel,
+    sourceModeLocked: decision.locked,
+    csnLockTrigger: decision.matchedTrigger,
+    csnLockTriggerType: decision.triggerType,
   };
 }
 

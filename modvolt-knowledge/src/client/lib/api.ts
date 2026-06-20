@@ -184,6 +184,21 @@ export const api = {
   saveSettings: (settings: Record<string, string>) =>
     req<{ ok: boolean }>("/admin/settings", { method: "PUT", body: JSON.stringify(settings) }),
   audit: () => req<{ logs: any[] }>("/admin/audit"),
+  csnLockQueries: () =>
+    req<{
+      queries: {
+        id: string;
+        query: string;
+        mode: string;
+        sourceMode: string | null;
+        csnLockTrigger: string | null;
+        createdAt: string;
+        userName: string | null;
+      }[];
+      total: number;
+      total30d: number;
+      topTriggers: { trigger: string | null; c: number }[];
+    }>("/admin/csn-lock-queries"),
   stats: () => req<any>("/admin/stats"),
   indexingJobs: () => req<{ jobs: IndexingJobRow[] }>("/admin/indexing-jobs"),
   retryIndexing: (documentId: string) =>

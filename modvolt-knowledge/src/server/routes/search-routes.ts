@@ -165,6 +165,8 @@ searchRouter.post("/ask", imageUpload.array("images", 4), async (req, res) => {
       usedChunkIds: result.usedChunkIds,
       usedWebSearch: result.usedWebSearch,
       attachmentIds: attachmentIds.length ? attachmentIds : null,
+      csnLockTriggered: result.sourceModeLocked,
+      csnLockTrigger: result.csnLockTrigger ?? null,
     });
     await audit(req, "ai_ask", "search", undefined, {
       sourceMode: result.answer.sourceMode,

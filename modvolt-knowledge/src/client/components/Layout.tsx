@@ -10,6 +10,7 @@ export type Page =
   | "tags"
   | "indexing"
   | "audit"
+  | "csn-lock"
   | "settings"
   | "users";
 
@@ -34,6 +35,7 @@ export function Layout({
     { key: "tags", label: "Štítky", show: isAdmin },
     { key: "indexing", label: "Import / Indexace", show: isAdmin },
     { key: "audit", label: "Audit log", show: isAdmin },
+    { key: "csn-lock", label: "Zámek ČSN", show: isAdmin },
     { key: "settings", label: "Nastavení", show: isAdmin },
     { key: "users", label: "Uživatelé", show: isAdmin },
   ];

@@ -163,6 +163,10 @@ export const searchQueries = pgTable("search_queries", {
   usedWebSearch: boolean("used_web_search").notNull().default(false),
   webResultsJson: jsonb("web_results_json"),
   attachmentIds: jsonb("attachment_ids"),
+  // Tvrdý zámek ČSN: zda byl dotaz vynuceně přepnut na csn_only a co to spustilo
+  // (klíčové slovo nebo vestavěný vzor) - pro ladění seznamu klíčových slov adminem.
+  csnLockTriggered: boolean("csn_lock_triggered").notNull().default(false),
+  csnLockTrigger: text("csn_lock_trigger"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

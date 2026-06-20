@@ -10,6 +10,7 @@ import { CategoriesPage } from "./pages/CategoriesPage.js";
 import { TagsPage } from "./pages/TagsPage.js";
 import { IndexingPage } from "./pages/IndexingPage.js";
 import { AuditPage } from "./pages/AuditPage.js";
+import { CsnLockPage } from "./pages/CsnLockPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
 
@@ -39,6 +40,7 @@ function Shell() {
       {page === "tags" && isAdmin && <TagsPage />}
       {page === "indexing" && isAdmin && <IndexingPage />}
       {page === "audit" && isAdmin && <AuditPage />}
+      {page === "csn-lock" && isAdmin && <CsnLockPage />}
       {page === "settings" && isAdmin && <SettingsPage />}
       {page === "users" && isAdmin && <UsersPage />}
     </Layout>

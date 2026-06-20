@@ -59,6 +59,10 @@ export interface SourceModeDecision {
   sourceMode: SourceMode;
   locked: boolean;
   reason: string;
+  // Co konkrétně zámek spustilo (klíčové slovo nebo zdroj vestavěného vzoru).
+  // Nevyplněno, pokud zámek nebyl aktivován. Slouží adminovi k ladění seznamu.
+  matchedTrigger?: string;
+  triggerType?: "keyword" | "builtin";
 }
 
 /** Odstraní diakritiku a převede na malá písmena pro tolerantní porovnání. */
@@ -103,18 +107,20 @@ export function resolveSourceMode(
       ? lockKeywords
       : DEFAULT_CSN_LOCK_KEYWORDS;
 
-  const matchesKeyword = keywords.some((kw) => {
+  const matchedKeyword = keywords.find((kw) => {
     const nk = normalizeForMatch(kw);
     return nk.length > 0 && normQuery.includes(nk);
   });
-  const matchesBuiltin = BUILTIN_CSN_PATTERNS.some((re) => re.test(normQuery));
+  const matchedBuiltin = BUILTIN_CSN_PATTERNS.find((re) => re.test(normQuery));
 
-  if (matchesKeyword || matchesBuiltin) {
+  if (matchedKeyword || matchedBuiltin) {
     return {
       sourceMode: "csn_only",
       locked: true,
       reason:
         "Dotaz se týká elektrických norem/ČSN. Z bezpečnostních důvodů se používají pouze interní normové dokumenty (žádný web).",
+      matchedTrigger: matchedKeyword ?? matchedBuiltin?.source,
+      triggerType: matchedKeyword ? "keyword" : "builtin",
     };
   }
 

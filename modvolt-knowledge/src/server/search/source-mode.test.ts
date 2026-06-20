@@ -45,6 +45,35 @@ test("ČSN/norm queries always resolve to csn_only and are locked", () => {
   }
 });
 
+test("locked decision reports which trigger fired (keyword vs builtin)", () => {
+  // Klíčové slovo "reviz" zachytí dotaz na revize.
+  const keywordHit = resolveSourceMode(
+    "Jaká je norma pro revize elektroinstalace?",
+    "web_allowed",
+  );
+  assert.equal(keywordHit.locked, true);
+  assert.equal(keywordHit.triggerType, "keyword");
+  assert.ok(
+    keywordHit.matchedTrigger && keywordHit.matchedTrigger.length > 0,
+    "matchedTrigger must be set for keyword hit",
+  );
+
+  // Číslo normy zachytí vestavěný strukturální vzor (bez klíčového slova).
+  const builtinHit = resolveSourceMode("IEC 60364", "web_allowed");
+  assert.equal(builtinHit.locked, true);
+  assert.equal(builtinHit.triggerType, "builtin");
+  assert.ok(
+    builtinHit.matchedTrigger && builtinHit.matchedTrigger.length > 0,
+    "matchedTrigger must be set for builtin hit",
+  );
+
+  // Nenormový dotaz nemá žádný spouštěč.
+  const noHit = resolveSourceMode("Kontakt na obchodní oddělení", "web_allowed");
+  assert.equal(noHit.locked, false);
+  assert.equal(noHit.matchedTrigger, undefined);
+  assert.equal(noHit.triggerType, undefined);
+});
+
 test("ČSN/norm queries NEVER allow web search, even if web was requested", () => {
   for (const q of csnQueries) {
     // I když uživatel explicitně požádá o web_allowed, zámek to přebije.
