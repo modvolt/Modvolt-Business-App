@@ -16,6 +16,7 @@ import {
   getDocumentTagIds,
   DuplicateDocumentError,
 } from "../documents/document-service.js";
+import { authorizeDocumentWrite } from "./document-access.js";
 import { getDownloadUrl } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { env } from "../env.js";
@@ -47,13 +48,8 @@ async function loadDocumentForWrite(
     .limit(1);
   const doc = rows[0];
   if (!doc) return { ok: false, status: 404, error: "Dokument nenalezen." };
-  if (user.role === "admin") return { ok: true, doc };
-  if (doc.visibility === "admin_only") {
-    return { ok: false, status: 403, error: "Nedostatečná oprávnění." };
-  }
-  if (doc.uploadedByUserId !== user.id) {
-    return { ok: false, status: 403, error: "Lze upravovat jen vlastní dokumenty." };
-  }
+  const decision = authorizeDocumentWrite(doc, user);
+  if (!decision.ok) return decision;
   return { ok: true, doc };
 }
 
