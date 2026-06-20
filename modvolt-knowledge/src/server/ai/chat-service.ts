@@ -5,7 +5,12 @@ import {
   DEFAULT_PROMPT_VERSION,
 } from "./prompts/index.js";
 import { searchChunks, type SearchHit } from "../search/search-service.js";
-import { resolveSourceMode, sourceModeAllowsWeb } from "../search/source-mode.js";
+import {
+  resolveSourceMode,
+  sourceModeAllowsWeb,
+  parseCsnLockKeywords,
+} from "../search/source-mode.js";
+import { getSetting } from "../lib/settings.js";
 import { webSearch, webSearchAvailable, type WebSearchResult } from "../search/web-search-service.js";
 import { describeImage, visionAvailable } from "./vision-analysis.js";
 import { aiAnswerSchema, safeFallbackAnswer } from "./answer-schema.js";
@@ -38,9 +43,24 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
     throw new Error("AI chat není dostupný (OpenAI je vypnuto).");
   }
 
-  const decision = resolveSourceMode(opts.query, opts.requestedSourceMode);
-  const promptVersion = opts.promptVersion ?? DEFAULT_PROMPT_VERSION;
-  const prompt = getPrompt(promptVersion);
+  // Klíčová slova zámku ČSN se čtou za běhu z nastavení (editovatelné adminem,
+  // bez nutnosti redeploye).
+  const lockKeywords = parseCsnLockKeywords(
+    await getSetting("csn_lock_keywords"),
+  );
+  const decision = resolveSourceMode(
+    opts.query,
+    opts.requestedSourceMode,
+    lockKeywords,
+  );
+  // Aktivní verzi promptu volí admin v nastavení; požadavek z klienta má přednost,
+  // jinak se použije nastavení a teprve poté vestavěná výchozí verze.
+  const activeVersion =
+    opts.promptVersion ??
+    (await getSetting("ai_prompt_version")) ??
+    DEFAULT_PROMPT_VERSION;
+  const prompt = getPrompt(activeVersion);
+  const promptVersion = prompt.version;
 
   // 1) Vize: popiš fotografie (pokud jsou a vize je dostupná).
   const imageObservations: string[] = [];

@@ -100,9 +100,24 @@ export function getPrompt(version: string): PromptVersion {
   return REGISTRY[version] ?? REGISTRY[DEFAULT_PROMPT_VERSION];
 }
 
-export function listPromptVersions(): { version: string; description: string }[] {
+/** Reprezentativní náhled promptu pro zobrazení v admin panelu (jen pro čtení). */
+export function getPromptPreview(version: string): string {
+  return getPrompt(version).buildSystemPrompt({
+    sourceMode: "internal_then_web",
+    sourceModeLocked: false,
+    webSearchAvailable: true,
+    hasImages: true,
+  });
+}
+
+export function listPromptVersions(): {
+  version: string;
+  description: string;
+  preview: string;
+}[] {
   return Object.values(REGISTRY).map((p) => ({
     version: p.version,
     description: p.description,
+    preview: getPromptPreview(p.version),
   }));
 }

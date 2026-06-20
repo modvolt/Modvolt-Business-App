@@ -1,41 +1,58 @@
 import type { SourceMode } from "../../shared/types.js";
 
-// Klíčová slova, která vynucují tvrdý zámek na režim "csn_only".
+// ---------------------------------------------------------------------------
+// Tvrdý zámek na režim "csn_only".
 // Pro dotazy na elektrické normy / ČSN se NIKDY nesmí použít web.
-const CSN_LOCK_PATTERNS: RegExp[] = [
-  /\bČSN\b/i,
-  /\bcsn\b/i,
-  /\bČSN\s*EN\b/i,
-  /\bIEC\s*\d/i,
-  /\bEN\s*\d{4,}/i,
-  /\bnorm(a|y|ě|ou|ám|ách|u)?\b/i,
-  /\brevize?\b/i,
-  /\brevizní\b/i,
-  /\bvyhlášk[ay]\b/i,
-  /\bnařízení vlády\b/i,
+//
+// Spouštěč zámku má dvě části:
+//  1) Vestavěné strukturální vzory (čísla norem, ČSN/EN/IEC s číslem) - ty
+//     nelze rozumně vyjádřit jako prosté klíčové slovo, takže zůstávají v kódu
+//     jako bezpečnostní základ a platí vždy.
+//  2) Editovatelný seznam klíčových slov (admin panel -> nastavení
+//     "csn_lock_keywords"). Čte se za běhu, takže změny se projeví bez
+//     redeploye. Klíčová slova se porovnávají bez ohledu na velikost písmen a
+//     diakritiku jako podřetězec - zadávejte kořeny slov (např. "norm",
+//     "reviz"), aby se zachytily i různé pády.
+// ---------------------------------------------------------------------------
+
+// Vestavěné strukturální vzory (vždy aktivní bezpečnostní základ).
+const BUILTIN_CSN_PATTERNS: RegExp[] = [
+  /\biec\s*\d/i,
+  /\ben\s*\d{4,}/i,
   /\b(33|50|73|34)\s?\d{3,}\b/, // typická čísla ČSN řad
-  /\bjištění\b/i,
-  /\bzemnění\b/i,
-  /\bdimenzování (vodičů|kabelů)\b/i,
-  /\bproudov(ý|ého|ém) chránič/i,
-  /\bchránič(e|i|em)?\b/i,
-  /\bRCD\b/i,
-  /\bimpedance smyčky\b/i,
-  /\buzemnění\b/i,
-  /\bpospojování\b/i,
-  /\bochrana před úrazem\b/i,
-  /\bživelná ochrana\b/i,
-  /\bizolačn(í|ího|ím) odpor/i,
-  /\brevizní zpráv/i,
-  /\belektroinstalac/i,
-  /\brozvaděč/i,
-  /\bjisti(č|če|čů|čem)\b/i,
-  /\bprůřez (vodiče|kabelu)/i,
-  /\bzkratov(ý|ého|á|é) proud/i,
-  /\bvypínací charakteristik/i,
-  /\bTN-(C|S|C-S)\b/i,
-  /\bIT síť\b/i,
-  /\bdotykové napětí\b/i,
+];
+
+// Výchozí editovatelná klíčová slova (kořeny slov, bez diakritiky se porovnává
+// jako podřetězec). Tímto se seeduje nastavení "csn_lock_keywords".
+export const DEFAULT_CSN_LOCK_KEYWORDS: string[] = [
+  "csn",
+  "norm",
+  "reviz",
+  "vyhlask",
+  "narizeni vlady",
+  "jisteni",
+  "jistic",
+  "zemneni",
+  "uzemneni",
+  "dimenzovani vodic",
+  "dimenzovani kabel",
+  "chranic",
+  "rcd",
+  "impedance smyck",
+  "pospojovani",
+  "ochrana pred urazem",
+  "zivelna ochrana",
+  "izolacni odpor",
+  "elektroinstalac",
+  "rozvadec",
+  "prurez vodic",
+  "prurez kabel",
+  "zkratov",
+  "vypinaci charakteristik",
+  "tn-c",
+  "tn-s",
+  "it sit",
+  "dotykove napeti",
 ];
 
 export interface SourceModeDecision {
@@ -44,18 +61,55 @@ export interface SourceModeDecision {
   reason: string;
 }
 
+/** Odstraní diakritiku a převede na malá písmena pro tolerantní porovnání. */
+function normalizeForMatch(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Rozparsuje uložený text nastavení na seznam klíčových slov.
+ * Oddělovač je nový řádek nebo čárka; prázdné položky se ignorují.
+ */
+export function parseCsnLockKeywords(
+  raw: string | null | undefined,
+): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/\r?\n|,/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 /**
  * Rozhodne efektivní režim zdrojů.
  * Pokud dotaz spadá pod elektrické normy/ČSN, vynutí "csn_only" bez ohledu
  * na požadovaný režim (tvrdý zámek) - žádný web, jen interní normové dokumenty.
+ *
+ * @param lockKeywords Editovatelná klíčová slova z nastavení. Pokud je seznam
+ *   prázdný/nezadaný, použijí se výchozí (DEFAULT_CSN_LOCK_KEYWORDS).
  */
 export function resolveSourceMode(
   query: string,
   requested: SourceMode,
+  lockKeywords?: string[],
 ): SourceModeDecision {
-  const matchesCsn = CSN_LOCK_PATTERNS.some((re) => re.test(query));
+  const normQuery = normalizeForMatch(query);
+  const keywords =
+    lockKeywords && lockKeywords.length > 0
+      ? lockKeywords
+      : DEFAULT_CSN_LOCK_KEYWORDS;
 
-  if (matchesCsn) {
+  const matchesKeyword = keywords.some((kw) => {
+    const nk = normalizeForMatch(kw);
+    return nk.length > 0 && normQuery.includes(nk);
+  });
+  const matchesBuiltin = BUILTIN_CSN_PATTERNS.some((re) => re.test(normQuery));
+
+  if (matchesKeyword || matchesBuiltin) {
     return {
       sourceMode: "csn_only",
       locked: true,

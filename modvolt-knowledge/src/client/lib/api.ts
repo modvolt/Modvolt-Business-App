@@ -177,9 +177,10 @@ export const api = {
   deleteUser: (id: string) =>
     req<{ ok: boolean }>(`/admin/users/${id}`, { method: "DELETE" }),
   settings: () =>
-    req<{ settings: Record<string, string>; promptVersions: { version: string; description: string }[] }>(
-      "/admin/settings",
-    ),
+    req<{
+      settings: Record<string, string>;
+      promptVersions: { version: string; description: string; preview: string }[];
+    }>("/admin/settings"),
   saveSettings: (settings: Record<string, string>) =>
     req<{ ok: boolean }>("/admin/settings", { method: "PUT", body: JSON.stringify(settings) }),
   audit: () => req<{ logs: any[] }>("/admin/audit"),

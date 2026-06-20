@@ -1,1 +1,2 @@
 - [Modvolt Knowledge constraints](modvolt-knowledge.md) — standalone RAG app, zero Replit runtime dep; citation grounding + dedup/versioning invariants.
+- [Runtime-tunable admin settings](modvolt-runtime-settings.md) — ČSN lock keywords + active prompt version live in app_settings, read at runtime with a safety floor; new defaults need db:migrate.

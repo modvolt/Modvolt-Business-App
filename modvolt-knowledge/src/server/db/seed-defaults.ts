@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { DEFAULT_CSN_LOCK_KEYWORDS } from "../search/source-mode.js";
 
 const DEFAULT_CATEGORIES = [
   "Elektro normy",
@@ -33,6 +34,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   allow_user_uploads: "false",
   max_upload_mb: "50",
   max_image_upload_mb: "15",
+  csn_lock_keywords: DEFAULT_CSN_LOCK_KEYWORDS.join("\n"),
 };
 
 export function slugify(input: string): string {

@@ -14,7 +14,8 @@ import {
 import { requireRole } from "../middleware/auth.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { hashPassword } from "../auth/password.js";
-import { listPromptVersions } from "../ai/prompts/index.js";
+import { listPromptVersions, getPrompt } from "../ai/prompts/index.js";
+import { invalidateSettingsCache } from "../lib/settings.js";
 import { audit } from "../lib/audit.js";
 
 export const adminRouter = Router();
@@ -114,6 +115,15 @@ const settingsSchema = z.record(z.string(), z.string());
 adminRouter.put("/settings", async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Neplatná nastavení." });
+  // Aktivní verze promptu musí existovat v registru promptů v kódu.
+  if (parsed.data.ai_prompt_version !== undefined) {
+    const requested = parsed.data.ai_prompt_version;
+    if (getPrompt(requested).version !== requested) {
+      return res
+        .status(400)
+        .json({ error: `Neznámá verze promptu: ${requested}.` });
+    }
+  }
   for (const [key, value] of Object.entries(parsed.data)) {
     await db
       .insert(appSettings)
@@ -123,6 +133,8 @@ adminRouter.put("/settings", async (req, res) => {
         set: { value, updatedAt: new Date() },
       });
   }
+  // Změny se musí projevit za běhu (bez redeploye) - vyprázdníme cache nastavení.
+  invalidateSettingsCache();
   await audit(req, "update", "settings");
   res.json({ ok: true });
 });
