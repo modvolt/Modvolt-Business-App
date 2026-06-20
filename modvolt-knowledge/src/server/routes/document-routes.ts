@@ -32,6 +32,7 @@ import {
   classificationAvailable,
 } from "../ai/classification-service.js";
 import { authorizeDocumentWrite } from "./document-access.js";
+import { parseBatchItems, commitBatch } from "./batch-commit.js";
 import { getDownloadUrl } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { env } from "../env.js";
@@ -357,20 +358,10 @@ documentRouter.post(
   },
 );
 
-// Schéma jedné položky potvrzené dávky (metadata zvolená/upravená adminem).
-const batchItemSchema = z.object({
-  title: z.string().optional(),
-  description: z.string().optional(),
-  categoryId: z.string().uuid().optional().or(z.literal("")),
-  documentType: z.string().optional(),
-  visibility: z.enum(["all_users", "admin_only"]).optional(),
-  tagIds: z.array(z.string()).optional(),
-  skip: z.boolean().optional(),
-});
-
 // (b) Potvrzení dávky: přijme soubory + odpovídající metadata (ve stejném
 // pořadí) a každý soubor vytvoří přes existující pipeline createDocument.
-// Každý soubor se zpracuje nezávisle; výsledek je per-soubor.
+// Každý soubor se zpracuje nezávisle; výsledek je per-soubor. Vlastní logika
+// (validace, izolace souborů, mapování duplicit) žije v batch-commit.ts.
 documentRouter.post(
   "/batch/commit",
   requireWriteAccess,
@@ -379,71 +370,20 @@ documentRouter.post(
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (!files.length) return res.status(400).json({ error: "Chybí soubory." });
 
-    let rawItems: unknown;
-    try {
-      rawItems = JSON.parse(String(req.body.items ?? "[]"));
-    } catch {
-      return res.status(400).json({ error: "Neplatná metadata dávky." });
-    }
-    const parsed = z.array(batchItemSchema).safeParse(rawItems);
-    if (!parsed.success || parsed.data.length !== files.length) {
-      return res
-        .status(400)
-        .json({ error: "Počet metadat neodpovídá počtu souborů." });
-    }
+    const parsed = parseBatchItems(String(req.body.items ?? "[]"), files.length);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    const results: {
-      fileName: string;
-      status: "created" | "skipped" | "duplicate" | "error";
-      documentId?: string;
-      existingDocumentId?: string;
-      error?: string;
-    }[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const item = parsed.data[i];
-      const fileName = file.originalname;
-
-      if (item.skip) {
-        results.push({ fileName, status: "skipped" });
-        continue;
-      }
-
-      try {
-        const doc = await createDocument({
-          buffer: file.buffer,
-          originalFileName: fileName,
-          mimeType: file.mimetype,
-          title: item.title,
-          description: item.description,
-          categoryId: item.categoryId || null,
-          documentType: (item.documentType as DocumentType) || "other",
-          visibility: (item.visibility as DocumentVisibility) || "all_users",
-          tagIds: item.tagIds,
-          uploadedByUserId: req.currentUser!.id,
-        });
-        await audit(req, "upload", "document", doc.id, {
+    const results = await commitBatch(
+      files,
+      parsed.items,
+      req.currentUser!.id,
+      createDocument,
+      (doc) =>
+        audit(req, "upload", "document", doc.id, {
           title: doc.title,
           batch: true,
-        });
-        results.push({ fileName, status: "created", documentId: doc.id });
-      } catch (err) {
-        if (err instanceof DuplicateDocumentError) {
-          results.push({
-            fileName,
-            status: "duplicate",
-            existingDocumentId: err.existingDocumentId,
-          });
-        } else {
-          results.push({
-            fileName,
-            status: "error",
-            error: String((err as Error).message),
-          });
-        }
-      }
-    }
+        }),
+    );
 
     res.status(201).json({ results });
   },
