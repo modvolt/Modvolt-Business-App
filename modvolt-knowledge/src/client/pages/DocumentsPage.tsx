@@ -653,11 +653,32 @@ function BatchImport({
   const removeRow = (idx: number) =>
     setRows((prev) => prev.filter((_, i) => i !== idx));
 
+  // Řekni serveru, ať zahodí dočasné soubory rozbalených ZIP relací (uvolní
+  // místo na disku hned, bez čekání na TTL). Best-effort – chyby ignorujeme.
+  const discardSessions = () => {
+    const tokens = Array.from(
+      new Set(
+        rows
+          .map((r) => r.sessionToken)
+          .filter((t): t is string => Boolean(t)),
+      ),
+    );
+    for (const token of tokens) {
+      void api.discardImportSession(token).catch(() => {});
+    }
+  };
+
   const reset = () => {
+    discardSessions();
     setRows([]);
     setPhase("select");
     setError("");
     setZipNotices([]);
+  };
+
+  const handleClose = () => {
+    discardSessions();
+    onClose();
   };
 
   const toggleRowTag = (idx: number, tagId: string) =>
@@ -784,7 +805,7 @@ function BatchImport({
             <button className="secondary" onClick={reset} disabled={busy}>
               Začít znovu
             </button>
-            <button className="secondary" onClick={onClose} disabled={busy}>
+            <button className="secondary" onClick={handleClose} disabled={busy}>
               Zavřít
             </button>
           </div>

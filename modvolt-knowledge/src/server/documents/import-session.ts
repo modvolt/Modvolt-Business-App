@@ -132,6 +132,46 @@ export async function deleteImportSession(token: string): Promise<void> {
   }
 }
 
+/**
+ * Smaže jednu položku relace a její dočasný soubor (best-effort). Slouží k
+ * uvolnění místa hned po úspěšném potvrzení položky – bajty už nejsou potřeba.
+ * Když po smazání v relaci nezůstanou žádné položky, smaže se celá relace
+ * (i s adresářem), takže po potvrzení celé dávky disk nezůstane zaplněný.
+ * No-op, pokud relace neexistuje, patří jinému uživateli, nebo položka chybí.
+ */
+export async function deleteImportEntry(
+  token: string,
+  entryId: string,
+  userId: string,
+): Promise<void> {
+  const session = sessions.get(token);
+  if (!session || session.userId !== userId) return;
+  const entry = session.entries.get(entryId);
+  if (!entry) return;
+  session.entries.delete(entryId);
+  try {
+    await rm(entry.filePath, { force: true });
+  } catch {
+    // Úklid je best-effort; sweeper případně doklidí celý adresář relace.
+  }
+  if (session.entries.size === 0) {
+    await deleteImportSession(token);
+  }
+}
+
+/**
+ * Zahodí relaci na pokyn klienta (dokončený/zrušený import). User-scoped:
+ * cizí relaci nelze smazat. Idempotentní – chybějící relace je no-op.
+ */
+export async function discardImportSession(
+  token: string,
+  userId: string,
+): Promise<void> {
+  const session = sessions.get(token);
+  if (!session || session.userId !== userId) return;
+  await deleteImportSession(token);
+}
+
 /** Smaže vypršelé relace. Volá se periodicky i lazy při přístupu. */
 export async function sweepExpiredImportSessions(): Promise<void> {
   const now = Date.now();

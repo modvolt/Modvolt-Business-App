@@ -245,6 +245,11 @@ export const api = {
       method: "POST",
       body: form,
     }),
+  discardImportSession: (sessionToken: string) =>
+    req<{ ok: boolean }>("/documents/batch/session/discard", {
+      method: "POST",
+      body: JSON.stringify({ sessionToken }),
+    }),
 
   // Search & AI
   search: (query: string, filters: SearchFilters = {}) =>

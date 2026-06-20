@@ -32,6 +32,8 @@ import {
 import {
   createImportSession,
   readImportEntry,
+  deleteImportEntry,
+  discardImportSession,
 } from "../documents/import-session.js";
 import { extractText } from "../documents/text-extraction.js";
 import {
@@ -579,9 +581,40 @@ documentRouter.post(
       finalResults[indexMap[k]] = committed[k];
     }
 
+    // Úklid: bajty úspěšně potvrzených ZIP položek už server nepotřebuje, tak
+    // uvolni místo na disku hned (best-effort), místo čekání na TTL sweeper.
+    // Položky, které skončily chybou, ponecháme – admin je může znovu potvrdit.
+    for (let i = 0; i < parsed.items.length; i++) {
+      const item = parsed.items[i];
+      const result = finalResults[i];
+      if (
+        item.entryId &&
+        item.sessionToken &&
+        result &&
+        result.status !== "error"
+      ) {
+        await deleteImportEntry(
+          item.sessionToken,
+          item.entryId,
+          req.currentUser!.id,
+        );
+      }
+    }
+
     res.status(201).json({ results: finalResults });
   },
 );
+
+// (c) Zahození relace importu: klient signalizuje, že dávku dokončil nebo zavřel
+// dialog. Dočasné soubory relace tak lze smazat hned, bez čekání na TTL sweeper.
+// User-scoped a idempotentní – cizí/chybějící relace je tichý no-op.
+documentRouter.post("/batch/session/discard", requireWriteAccess, async (req, res) => {
+  const token =
+    typeof req.body?.sessionToken === "string" ? req.body.sessionToken : "";
+  if (!token) return res.status(400).json({ error: "Chybí token relace." });
+  await discardImportSession(token, req.currentUser!.id);
+  res.json({ ok: true });
+});
 
 // Maximální počet dokumentů v jedné dávce přeřazení (ochrana paměti/času).
 const MAX_RECLASSIFY = 50;
