@@ -230,6 +230,18 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Vlastní (adminem upravené) verze promptů. Vestavěné verze žijí v kódu
+// (src/server/ai/prompts) a slouží jako fallback; zde uložené verze je
+// rozšiřují a lze je vybrat jako aktivní stejně jako vestavěné.
+export const promptVersions = pgTable("prompt_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  version: text("version").notNull().unique(),
+  description: text("description").notNull().default(""),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const indexingJobs = pgTable("indexing_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
   documentId: uuid("document_id").notNull(),

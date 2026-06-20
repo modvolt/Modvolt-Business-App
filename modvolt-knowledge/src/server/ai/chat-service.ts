@@ -1,9 +1,7 @@
 import { getOpenAi } from "./openai-client.js";
 import { env, isOpenAiUsable } from "../env.js";
-import {
-  getPrompt,
-  DEFAULT_PROMPT_VERSION,
-} from "./prompts/index.js";
+import { DEFAULT_PROMPT_VERSION } from "./prompts/index.js";
+import { resolvePrompt } from "./prompts/prompt-store.js";
 import { searchChunks, type SearchHit } from "../search/search-service.js";
 import {
   resolveSourceMode,
@@ -63,7 +61,9 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
     opts.promptVersion ??
     (await getSetting("ai_prompt_version")) ??
     DEFAULT_PROMPT_VERSION;
-  const prompt = getPrompt(activeVersion);
+  // Vlastní (adminem upravené) verze se čtou z DB; vestavěné v kódu slouží
+  // jako fallback (resolvePrompt vrátí výchozí verzi, pokud verze neexistuje).
+  const prompt = await resolvePrompt(activeVersion);
   const promptVersion = prompt.version;
 
   // 1) Vize: popiš fotografie (pokud jsou a vize je dostupná).

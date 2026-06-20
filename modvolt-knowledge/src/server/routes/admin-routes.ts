@@ -14,7 +14,14 @@ import {
 import { requireRole } from "../middleware/auth.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { hashPassword } from "../auth/password.js";
-import { listPromptVersions, getPrompt } from "../ai/prompts/index.js";
+import {
+  listAllPromptVersions,
+  isKnownPromptVersion,
+  createCustomPrompt,
+  updateCustomPrompt,
+  deleteCustomPrompt,
+  PromptStoreError,
+} from "../ai/prompts/prompt-store.js";
 import { invalidateSettingsCache } from "../lib/settings.js";
 import { audit } from "../lib/audit.js";
 
@@ -107,7 +114,7 @@ adminRouter.get("/settings", async (_req, res) => {
   const rows = await db.select().from(appSettings);
   const settings: Record<string, string | null> = {};
   for (const r of rows) settings[r.key] = r.value;
-  res.json({ settings, promptVersions: listPromptVersions() });
+  res.json({ settings, promptVersions: await listAllPromptVersions() });
 });
 
 const settingsSchema = z.record(z.string(), z.string());
@@ -115,10 +122,10 @@ const settingsSchema = z.record(z.string(), z.string());
 adminRouter.put("/settings", async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Neplatná nastavení." });
-  // Aktivní verze promptu musí existovat v registru promptů v kódu.
+  // Aktivní verze promptu musí existovat (vestavěná v kódu nebo vlastní v DB).
   if (parsed.data.ai_prompt_version !== undefined) {
     const requested = parsed.data.ai_prompt_version;
-    if (getPrompt(requested).version !== requested) {
+    if (!(await isKnownPromptVersion(requested))) {
       return res
         .status(400)
         .json({ error: `Neznámá verze promptu: ${requested}.` });
@@ -136,6 +143,89 @@ adminRouter.put("/settings", async (req, res) => {
   // Změny se musí projevit za běhu (bez redeploye) - vyprázdníme cache nastavení.
   invalidateSettingsCache();
   await audit(req, "update", "settings");
+  res.json({ ok: true });
+});
+
+// --- Vlastní verze promptů ---
+// Verze: malá písmena, číslice, pomlčky/podtržítka, tečky (např. "vlastni-1").
+const promptVersionPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+const createPromptSchema = z.object({
+  version: z.string().regex(promptVersionPattern, {
+    message:
+      "Verze smí obsahovat jen malá písmena, číslice, tečku, pomlčku a podtržítko (max. 64 znaků).",
+  }),
+  description: z.string().max(200).default(""),
+  body: z.string().min(1, "Tělo promptu nesmí být prázdné.").max(20000),
+});
+
+adminRouter.post("/prompts", async (req, res) => {
+  const parsed = createPromptSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: parsed.error.issues[0]?.message ?? "Neplatná data promptu." });
+  }
+  try {
+    const row = await createCustomPrompt(parsed.data);
+    await audit(req, "create", "prompt_version", row.version);
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof PromptStoreError) {
+      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+const updatePromptSchema = z.object({
+  description: z.string().max(200).default(""),
+  body: z.string().min(1, "Tělo promptu nesmí být prázdné.").max(20000),
+});
+
+adminRouter.put("/prompts/:version", async (req, res) => {
+  const parsed = updatePromptSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: parsed.error.issues[0]?.message ?? "Neplatná data promptu." });
+  }
+  try {
+    const row = await updateCustomPrompt(req.params.version, parsed.data);
+    await audit(req, "update", "prompt_version", row.version);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof PromptStoreError) {
+      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+adminRouter.delete("/prompts/:version", async (req, res) => {
+  const version = req.params.version;
+  // Pokud mažeme aktivně používanou verzi, vrátíme nastavení na výchozí v kódu.
+  const [activeRow] = await db
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, "ai_prompt_version"))
+    .limit(1);
+  try {
+    await deleteCustomPrompt(version);
+  } catch (err) {
+    if (err instanceof PromptStoreError) {
+      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
+    }
+    throw err;
+  }
+  if (activeRow?.value === version) {
+    await db
+      .update(appSettings)
+      .set({ value: "v1", updatedAt: new Date() })
+      .where(eq(appSettings.key, "ai_prompt_version"));
+    invalidateSettingsCache();
+  }
+  await audit(req, "delete", "prompt_version", version);
   res.json({ ok: true });
 });
 

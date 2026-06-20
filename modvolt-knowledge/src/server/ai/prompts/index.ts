@@ -72,22 +72,31 @@ const RESPONSE_SCHEMA = `FORMÁT ODPOVĚDI (JSON):
   "warnings": ["string"]
 }`;
 
+const IMAGE_RULES = `ZPRACOVÁNÍ FOTOGRAFIÍ:
+- Popiš jen to, co je na fotografii skutečně vidět (do "imageObservations").
+- Neodhaduj hodnoty, které nelze z fotky bezpečně určit; místo toho je uveď do "requiredMeasurements".
+- U elektrických zařízení vždy upozorni na nutnost odborného posouzení a měření.`;
+
+/**
+ * Sestaví kompletní systémový prompt z editovatelného „těla" (základních
+ * pravidel). Dynamické části (režim zdrojů, pravidla pro fotografie a povinný
+ * JSON formát odpovědi) se přidávají vždy automaticky, takže i vlastní prompty
+ * upravené adminem zachovají strukturu výstupu a vynucení citací.
+ */
+export function composeSystemPrompt(body: string, ctx: PromptContext): string {
+  const parts = [body.trim(), sourceModeInstructions(ctx)];
+  if (ctx.hasImages) parts.push(IMAGE_RULES);
+  parts.push(RESPONSE_SCHEMA);
+  return parts.join("\n\n");
+}
+
+/** Výchozí editovatelné tělo promptu (základní pravidla), které mohou admini naklonovat. */
+export const DEFAULT_PROMPT_BODY = BASE_RULES;
+
 const V1: PromptVersion = {
   version: "v1",
   description: "Výchozí prompt s povinnými citacemi a režimy zdrojů.",
-  buildSystemPrompt: (ctx) => {
-    const parts = [BASE_RULES, sourceModeInstructions(ctx)];
-    if (ctx.hasImages) {
-      parts.push(
-        `ZPRACOVÁNÍ FOTOGRAFIÍ:
-- Popiš jen to, co je na fotografii skutečně vidět (do "imageObservations").
-- Neodhaduj hodnoty, které nelze z fotky bezpečně určit; místo toho je uveď do "requiredMeasurements".
-- U elektrických zařízení vždy upozorni na nutnost odborného posouzení a měření.`,
-      );
-    }
-    parts.push(RESPONSE_SCHEMA);
-    return parts.join("\n\n");
-  },
+  buildSystemPrompt: (ctx) => composeSystemPrompt(BASE_RULES, ctx),
 };
 
 const REGISTRY: Record<string, PromptVersion> = {
@@ -98,6 +107,29 @@ export const DEFAULT_PROMPT_VERSION = "v1";
 
 export function getPrompt(version: string): PromptVersion {
   return REGISTRY[version] ?? REGISTRY[DEFAULT_PROMPT_VERSION];
+}
+
+/** Je `version` vestavěná verze promptu (v kódu)? */
+export function isBuiltInPromptVersion(version: string): boolean {
+  return Object.prototype.hasOwnProperty.call(REGISTRY, version);
+}
+
+/** Editovatelné tělo vestavěné verze (pro zobrazení / naklonování v admin UI). */
+export function getBuiltInPromptBody(_version: string): string {
+  return BASE_RULES;
+}
+
+/** Vytvoří PromptVersion z vlastního (adminem uloženého) těla promptu. */
+export function makeCustomPrompt(
+  version: string,
+  description: string,
+  body: string,
+): PromptVersion {
+  return {
+    version,
+    description,
+    buildSystemPrompt: (ctx) => composeSystemPrompt(body, ctx),
+  };
 }
 
 /** Reprezentativní náhled promptu pro zobrazení v admin panelu (jen pro čtení). */

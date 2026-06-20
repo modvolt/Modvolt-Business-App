@@ -22,6 +22,13 @@
       "when": 1781984459675,
       "tag": "0002_spooky_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781984910603,
+      "tag": "0003_loose_serpent_society",
+      "breakpoints": true
     }
   ]
 }

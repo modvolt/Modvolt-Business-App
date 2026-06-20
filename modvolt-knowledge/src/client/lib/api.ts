@@ -84,6 +84,14 @@ export interface SearchFilters {
   validOn?: string;
 }
 
+export interface PromptVersionInfo {
+  version: string;
+  description: string;
+  body: string;
+  preview: string;
+  builtIn: boolean;
+}
+
 export interface SearchHit {
   chunkId: string;
   documentId: string;
@@ -179,10 +187,24 @@ export const api = {
   settings: () =>
     req<{
       settings: Record<string, string>;
-      promptVersions: { version: string; description: string; preview: string }[];
+      promptVersions: PromptVersionInfo[];
     }>("/admin/settings"),
   saveSettings: (settings: Record<string, string>) =>
     req<{ ok: boolean }>("/admin/settings", { method: "PUT", body: JSON.stringify(settings) }),
+  createPrompt: (data: { version: string; description: string; body: string }) =>
+    req<{ ok: boolean }>("/admin/prompts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updatePrompt: (version: string, data: { description: string; body: string }) =>
+    req<{ ok: boolean }>(`/admin/prompts/${encodeURIComponent(version)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deletePrompt: (version: string) =>
+    req<{ ok: boolean }>(`/admin/prompts/${encodeURIComponent(version)}`, {
+      method: "DELETE",
+    }),
   audit: () => req<{ logs: any[] }>("/admin/audit"),
   csnLockQueries: () =>
     req<{

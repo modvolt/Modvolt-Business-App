@@ -16,6 +16,20 @@ added to seed-defaults only land via the manual `npm run db:migrate` script —
 seeding does NOT run on dev/start boot, so existing DBs won't have a new key
 until migrate is run. Always provide a code-level fallback for a missing key.
 
+## Admin-editable prompt bodies must keep the dynamic envelope
+Custom (admin-authored) prompt versions live in the `prompt_versions` DB table
+and only store the *editable body* (base rules / tone) — NOT the full system
+prompt. At runtime the body is wrapped by `composeSystemPrompt(body, ctx)`, which
+always appends the source-mode block, optional image rules, and the mandatory
+JSON response schema. Resolution prefers a DB custom version by name, else falls
+back to the built-in code registry (which itself falls back to the default).
+**Why:** storing/serving a free-form full prompt would let an admin drop the JSON
+schema or source-mode rules and silently break JSON parsing + citation grounding
+(a hard rule). Keeping the envelope in code makes those parts non-removable.
+**How to apply:** never persist the whole composed prompt; persist only the body
+and recompose. The new table needs `npm run db:migrate` (seeding/migrations don't
+run on boot). Deleting the active custom version resets `ai_prompt_version` to v1.
+
 ## ČSN hard-lock has a non-negotiable safety floor
 The csn_only source lock is split: built-in structural regexes (norm-number
 patterns, ČSN/EN/IEC followed by digits) are always applied in code and cannot
