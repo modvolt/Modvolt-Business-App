@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import { authRouter } from "./auth-routes.js";
 import { documentRouter } from "./document-routes.js";
 import { categoryRouter } from "./category-routes.js";
@@ -11,7 +11,7 @@ import {
 } from "../env.js";
 import { webSearchAvailable } from "../search/web-search-service.js";
 
-export const apiRouter = Router();
+export const apiRouter = createRouter();
 
 // Veřejné info o dostupných funkcích (pro UI).
 apiRouter.get("/capabilities", (_req, res) => {

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -7,7 +7,7 @@ import { verifyPassword } from "../auth/password.js";
 import { requireAuth } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 
-export const authRouter = Router();
+export const authRouter = createRouter();
 
 const loginSchema = z.object({
   email: z.string().email(),

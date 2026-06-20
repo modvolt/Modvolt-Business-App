@@ -10,6 +10,20 @@ import fs from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Poslední záchranná síť na úrovni procesu. Bez těchto handlerů by jakékoli
+// neošetřené odmítnutí Promise nebo výjimka mimo request cyklus (workery,
+// timery) shodily celý server. Místo tichého pádu je zalogujeme a běžíme dál.
+process.on("unhandledRejection", (reason) => {
+  logger.error(
+    "Neošetřené odmítnutí Promise",
+    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason),
+  );
+});
+
+process.on("uncaughtException", (err) => {
+  logger.error("Neošetřená výjimka", err?.stack ?? String(err));
+});
+
 async function main() {
   validateEnv();
 

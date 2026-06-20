@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import multer from "multer";
 import { z } from "zod";
 import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
@@ -41,7 +41,7 @@ import { env } from "../env.js";
 import { audit } from "../lib/audit.js";
 import type { DocumentType, DocumentVisibility } from "../../shared/types.js";
 
-export const documentRouter = Router();
+export const documentRouter = createRouter();
 
 const upload = multer({
   storage: multer.memoryStorage(),

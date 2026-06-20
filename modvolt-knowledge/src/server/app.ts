@@ -20,10 +20,17 @@ export function createApp(): Express {
 
   app.use("/api", apiRouter);
 
-  // Chybový handler API.
-  app.use("/api", (err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error("Neošetřená chyba API", String(err));
-    if (res.headersSent) return;
+  // Centrální chybový handler API. Sem se díky `createRouter`/`asyncHandler`
+  // dostanou i odmítnuté Promise z asynchronních handlerů, takže selhání
+  // jednoho requestu vrátí 500 jen jemu a server běží dál.
+  app.use("/api", (err: Error, req: Request, res: Response, next: NextFunction) => {
+    logger.error("Neošetřená chyba API", {
+      method: req.method,
+      path: req.originalUrl,
+      message: err?.message ?? String(err),
+      stack: err?.stack,
+    });
+    if (res.headersSent) return next(err);
     res.status(500).json({ error: "Interní chyba serveru." });
   });
 

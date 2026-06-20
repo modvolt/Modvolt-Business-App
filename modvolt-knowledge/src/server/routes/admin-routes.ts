@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -25,7 +25,7 @@ import {
 import { invalidateSettingsCache } from "../lib/settings.js";
 import { audit } from "../lib/audit.js";
 
-export const adminRouter = Router();
+export const adminRouter = createRouter();
 
 adminRouter.use(requireRole("admin"));
 

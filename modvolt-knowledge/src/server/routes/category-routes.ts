@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -7,7 +7,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { slugify } from "../db/seed-defaults.js";
 import { audit } from "../lib/audit.js";
 
-export const categoryRouter = Router();
+export const categoryRouter = createRouter();
 
 categoryRouter.use(requireAuth);
 

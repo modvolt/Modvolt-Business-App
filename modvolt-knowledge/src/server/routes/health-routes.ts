@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import { pool } from "../db/index.js";
 import { checkS3Health } from "../storage/s3.js";
 import {
@@ -10,7 +10,7 @@ import {
 import { APP_VERSION } from "../env.js";
 import { webSearchAvailable } from "../search/web-search-service.js";
 
-export const healthRouter = Router();
+export const healthRouter = createRouter();
 
 healthRouter.get("/health", async (_req, res) => {
   let dbOk = false;

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { createRouter } from "../lib/async-router.js";
 import crypto from "node:crypto";
 import multer from "multer";
 import { z } from "zod";
@@ -24,7 +24,7 @@ const ACCEPTED_IMAGE_MIME = new Set([
   "image/heif",
 ]);
 
-export const searchRouter = Router();
+export const searchRouter = createRouter();
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
