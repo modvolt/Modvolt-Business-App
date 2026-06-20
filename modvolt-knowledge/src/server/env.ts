@@ -29,6 +29,12 @@ export const env = {
 
   databaseUrl: str("DATABASE_URL"),
   sessionSecret: str("SESSION_SECRET", "insecure-dev-secret-change-me"),
+  // Řízení session cookie. Výchozí "lax" + secure dle NODE_ENV je vhodné pro
+  // běžné nasazení na vlastní doméně (Hetzner/Coolify). Pokud aplikace běží
+  // vložená v cross-site iframe (např. náhled na platformě), je nutné nastavit
+  // COOKIE_SAMESITE=none a COOKIE_SECURE=true, jinak prohlížeč cookie neuloží.
+  cookieSameSite: str("COOKIE_SAMESITE", "lax").toLowerCase(),
+  cookieSecure: bool("COOKIE_SECURE", str("NODE_ENV", "development") === "production"),
 
   s3: {
     endpoint: str("S3_ENDPOINT"),

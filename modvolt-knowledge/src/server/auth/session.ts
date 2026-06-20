@@ -19,8 +19,9 @@ export function buildSessionMiddleware() {
     rolling: true,
     cookie: {
       httpOnly: true,
-      sameSite: "lax",
-      secure: env.isProduction,
+      sameSite: env.cookieSameSite as "lax" | "strict" | "none",
+      // SameSite=None vyžaduje Secure, jinak prohlížeč cookie zahodí.
+      secure: env.cookieSameSite === "none" ? true : env.cookieSecure,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dní
     },
   });
