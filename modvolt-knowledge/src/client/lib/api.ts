@@ -95,6 +95,39 @@ export interface BatchCommitResult {
   error?: string;
 }
 
+export interface ReclassifyFields {
+  title: string;
+  description: string;
+  documentType: string;
+  categoryId: string | null;
+  tagIds: string[];
+}
+
+export interface ReclassifyAnalyzeItem {
+  documentId: string;
+  fileName: string;
+  current: ReclassifyFields | null;
+  suggestion: ReclassifyFields | null;
+  aiClassified: boolean;
+  error: string | null;
+}
+
+export interface ReclassifyCommitItem {
+  documentId: string;
+  title?: string;
+  description?: string;
+  documentType?: string;
+  categoryId?: string;
+  tagIds?: string[];
+  skip?: boolean;
+}
+
+export interface ReclassifyCommitResult {
+  documentId: string;
+  status: "updated" | "skipped" | "error";
+  error?: string;
+}
+
 export interface SearchFilters {
   sourceMode?: SourceMode;
   categoryId?: string;
@@ -190,6 +223,16 @@ export const api = {
     req<{ results: BatchCommitResult[] }>("/documents/batch/commit", {
       method: "POST",
       body: form,
+    }),
+  reclassifyAnalyze: (documentIds: string[]) =>
+    req<{ aiEnabled: boolean; results: ReclassifyAnalyzeItem[] }>(
+      "/documents/reclassify/analyze",
+      { method: "POST", body: JSON.stringify({ documentIds }) },
+    ),
+  reclassifyCommit: (items: ReclassifyCommitItem[]) =>
+    req<{ results: ReclassifyCommitResult[] }>("/documents/reclassify/commit", {
+      method: "POST",
+      body: JSON.stringify({ items }),
     }),
 
   // Search & AI

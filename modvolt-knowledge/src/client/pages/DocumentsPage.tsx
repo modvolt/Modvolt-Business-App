@@ -6,6 +6,9 @@ import {
   type TagRow,
   type BatchAnalyzeItem,
   type BatchCommitResult,
+  type ReclassifyAnalyzeItem,
+  type ReclassifyCommitResult,
+  type ReclassifyFields,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.js";
 import { DOCUMENT_TYPES } from "../../shared/types.js";
@@ -24,6 +27,8 @@ export function DocumentsPage() {
   const [error, setError] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [reclassifyIds, setReclassifyIds] = useState<string[] | null>(null);
 
   const load = async () => {
     try {
@@ -35,10 +40,22 @@ export function DocumentsPage() {
       setDocs(d.documents);
       setCategories(c.categories);
       setTags(t.tags);
+      // Vyčisti výběr od dokumentů, které už v seznamu nejsou.
+      const present = new Set(d.documents.map((x) => x.id));
+      setSelected((prev) => prev.filter((id) => present.has(id)));
     } catch (err) {
       setError((err as Error).message);
     }
   };
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  const allSelected = docs.length > 0 && selected.length === docs.length;
+  const toggleSelectAll = () =>
+    setSelected(allSelected ? [] : docs.map((d) => d.id));
 
   useEffect(() => {
     load();
@@ -71,6 +88,19 @@ export function DocumentsPage() {
         <h1 className="page-title">Dokumenty</h1>
         {canWrite && (
           <div className="row" style={{ flex: "0 0 auto" }}>
+            <button
+              className="secondary"
+              style={{ flex: "0 0 auto" }}
+              disabled={selected.length === 0}
+              onClick={() => setReclassifyIds(selected)}
+              title={
+                selected.length === 0
+                  ? "Vyberte dokumenty zaškrtnutím v seznamu"
+                  : "Navrhnout přeřazení vybraných dokumentů pomocí AI"
+              }
+            >
+              AI přeřadit ({selected.length})
+            </button>
             <button
               className="secondary"
               style={{ flex: "0 0 auto" }}
@@ -116,6 +146,20 @@ export function DocumentsPage() {
         />
       )}
 
+      {reclassifyIds && canWrite && (
+        <ReclassifyPanel
+          documentIds={reclassifyIds}
+          categories={categories}
+          tags={tags}
+          onDone={() => load()}
+          onClose={() => {
+            setReclassifyIds(null);
+            setSelected([]);
+            load();
+          }}
+        />
+      )}
+
       <div className="card">
         <div className="row">
           <input
@@ -134,6 +178,16 @@ export function DocumentsPage() {
         <table>
           <thead>
             <tr>
+              {canWrite && (
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    title="Vybrat vše"
+                  />
+                </th>
+              )}
               <th>Název</th>
               <th>Typ</th>
               <th>Stav</th>
@@ -144,6 +198,15 @@ export function DocumentsPage() {
           <tbody>
             {docs.map((d) => (
               <tr key={d.id}>
+                {canWrite && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(d.id)}
+                      onChange={() => toggleSelect(d.id)}
+                    />
+                  </td>
+                )}
                 <td>{d.title}</td>
                 <td className="tag">{d.documentType}</td>
                 <td>
@@ -171,7 +234,7 @@ export function DocumentsPage() {
             ))}
             {docs.length === 0 && (
               <tr>
-                <td colSpan={5} className="muted">
+                <td colSpan={canWrite ? 6 : 5} className="muted">
                   Žádné dokumenty.
                 </td>
               </tr>
@@ -764,6 +827,354 @@ function BatchStatusBadge({ status }: { status: RowStatus }) {
     created: { label: "Uloženo", cls: "indexed" },
     skipped: { label: "Přeskočeno", cls: "archived" },
     duplicate: { label: "Duplicita", cls: "failed" },
+    error: { label: "Chyba", cls: "failed" },
+  };
+  const { label, cls } = map[status];
+  return <span className={`badge ${cls}`}>{label}</span>;
+}
+
+type ReclassifyStatus =
+  | "analyzing"
+  | "ready"
+  | "committing"
+  | "updated"
+  | "skipped"
+  | "error";
+
+interface ReclassifyRow {
+  documentId: string;
+  fileName: string;
+  status: ReclassifyStatus;
+  message: string;
+  aiClassified: boolean;
+  hasSuggestion: boolean;
+  current: ReclassifyFields | null;
+  // Hodnoty, které se po potvrzení uloží (výchozí = AI návrh, jinak stávající).
+  title: string;
+  description: string;
+  documentType: string;
+  categoryId: string;
+  tagIds: string[];
+  skip: boolean;
+}
+
+function ReclassifyPanel({
+  documentIds,
+  categories,
+  tags,
+  onDone,
+  onClose,
+}: {
+  documentIds: string[];
+  categories: CategoryRow[];
+  tags: TagRow[];
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const { capabilities } = useAuth();
+  const [rows, setRows] = useState<ReclassifyRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const catName = (id: string | null) =>
+    id ? categories.find((c) => c.id === id)?.name ?? "?" : "—";
+  const tagNames = (ids: string[]) =>
+    ids.length
+      ? ids.map((id) => tags.find((t) => t.id === id)?.name ?? "?").join(", ")
+      : "—";
+
+  const updateRow = (idx: number, patch: Partial<ReclassifyRow>) =>
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setBusy(true);
+      setError("");
+      try {
+        const res = await api.reclassifyAnalyze(documentIds);
+        if (cancelled) return;
+        const next: ReclassifyRow[] = res.results.map((item) => {
+          const src: ReclassifyFields | null = item.suggestion ?? item.current;
+          return {
+            documentId: item.documentId,
+            fileName: item.fileName || item.documentId,
+            status: item.error ? "error" : "ready",
+            message: item.error
+              ? item.error
+              : item.suggestion
+                ? ""
+                : "Bez návrhu AI – uloží se stávající hodnoty.",
+            aiClassified: item.aiClassified,
+            hasSuggestion: Boolean(item.suggestion),
+            current: item.current,
+            title: src?.title ?? "",
+            description: src?.description ?? "",
+            documentType: src?.documentType ?? "other",
+            categoryId: src?.categoryId ?? "",
+            tagIds: src?.tagIds ?? [],
+            // Bez návrhu AI je standardně přeskočit (nic by se nezměnilo).
+            skip: item.error ? true : !item.suggestion,
+          };
+        });
+        setRows(next);
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleRowTag = (idx: number, tagId: string) =>
+    setRows((prev) =>
+      prev.map((r, i) =>
+        i === idx
+          ? {
+              ...r,
+              tagIds: r.tagIds.includes(tagId)
+                ? r.tagIds.filter((t) => t !== tagId)
+                : [...r.tagIds, tagId],
+            }
+          : r,
+      ),
+    );
+
+  const applyResults = (
+    indices: number[],
+    results: ReclassifyCommitResult[],
+  ) => {
+    const byId = new Map(results.map((r) => [r.documentId, r]));
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (!indices.includes(i)) return r;
+        const res = byId.get(r.documentId);
+        if (!res) return r;
+        if (res.status === "updated")
+          return { ...r, status: "updated", message: "Uloženo." };
+        if (res.status === "skipped")
+          return { ...r, status: "skipped", message: "Přeskočeno." };
+        return { ...r, status: "error", message: res.error ?? "Chyba." };
+      }),
+    );
+  };
+
+  const commit = async (indices: number[]) => {
+    const committable = indices.filter((i) => {
+      const r = rows[i];
+      return r && r.status !== "updated" && r.status !== "error";
+    });
+    if (!committable.length) return;
+    setBusy(true);
+    setError("");
+    committable.forEach((i) =>
+      updateRow(i, { status: "committing", message: "Ukládám…" }),
+    );
+    try {
+      const items = committable.map((i) => {
+        const r = rows[i];
+        return {
+          documentId: r.documentId,
+          title: r.title,
+          description: r.description,
+          documentType: r.documentType,
+          categoryId: r.categoryId,
+          tagIds: r.tagIds,
+          skip: r.skip,
+        };
+      });
+      const res = await api.reclassifyCommit(items);
+      applyResults(committable, res.results);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+      committable.forEach((i) => updateRow(i, { status: "ready", message: "" }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pendingCount = rows.filter(
+    (r) => r.status !== "updated" && r.status !== "error" && !r.skip,
+  ).length;
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>AI přeřazení dokumentů</h3>
+
+      {!capabilities.aiChat && (
+        <div className="muted" style={{ marginBottom: 12 }}>
+          AI klasifikace je vypnutá – návrhy nelze vygenerovat. Zapněte OpenAI,
+          nebo upravte zařazení ručně.
+        </div>
+      )}
+
+      {busy && rows.length === 0 && (
+        <div className="muted">Analyzuji vybrané dokumenty…</div>
+      )}
+
+      {error && <div className="error">{error}</div>}
+
+      {rows.length > 0 && (
+        <>
+          <div className="row" style={{ margin: "8px 0" }}>
+            <button
+              onClick={() => commit(rows.map((_, i) => i))}
+              disabled={busy || pendingCount === 0}
+            >
+              {busy ? "Zpracovávám…" : `Potvrdit vše (${pendingCount})`}
+            </button>
+            <button className="secondary" onClick={onClose} disabled={busy}>
+              Zavřít
+            </button>
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Dokument</th>
+                  <th>Stávající</th>
+                  <th>Návrh (název)</th>
+                  <th>Typ</th>
+                  <th>Kategorie</th>
+                  <th>Štítky</th>
+                  <th>Stav</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.documentId}>
+                    <td>
+                      <div>{r.fileName}</div>
+                      {r.aiClassified && (
+                        <span className="tag" style={{ marginTop: 4 }}>
+                          AI návrh
+                        </span>
+                      )}
+                    </td>
+                    <td className="muted" style={{ fontSize: 12, minWidth: 160 }}>
+                      {r.current ? (
+                        <>
+                          <div>{r.current.title}</div>
+                          <div>typ: {r.current.documentType}</div>
+                          <div>kat.: {catName(r.current.categoryId)}</div>
+                          <div>štítky: {tagNames(r.current.tagIds)}</div>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      <input
+                        value={r.title}
+                        onChange={(e) => updateRow(i, { title: e.target.value })}
+                        style={{ minWidth: 160 }}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        value={r.documentType}
+                        onChange={(e) =>
+                          updateRow(i, { documentType: e.target.value })
+                        }
+                      >
+                        {DOC_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        value={r.categoryId}
+                        onChange={(e) =>
+                          updateRow(i, { categoryId: e.target.value })
+                        }
+                      >
+                        <option value="">—</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <div className="chip-group" style={{ maxWidth: 220 }}>
+                        {tags.map((t) => (
+                          <span
+                            key={t.id}
+                            className={`chip ${
+                              r.tagIds.includes(t.id) ? "active" : ""
+                            }`}
+                            onClick={() => toggleRowTag(i, t.id)}
+                          >
+                            {t.name}
+                          </span>
+                        ))}
+                        {tags.length === 0 && <span className="muted">—</span>}
+                      </div>
+                    </td>
+                    <td>
+                      <ReclassifyStatusBadge status={r.status} />
+                      {r.message && (
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {r.message}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button
+                        className="ghost"
+                        disabled={
+                          busy ||
+                          r.status === "updated" ||
+                          r.status === "committing"
+                        }
+                        onClick={() => commit([i])}
+                      >
+                        Potvrdit
+                      </button>
+                      <label
+                        className="muted"
+                        style={{ fontSize: 12, marginLeft: 4 }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={r.skip}
+                          onChange={(e) =>
+                            updateRow(i, { skip: e.target.checked })
+                          }
+                        />{" "}
+                        přeskočit
+                      </label>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReclassifyStatusBadge({ status }: { status: ReclassifyStatus }) {
+  const map: Record<ReclassifyStatus, { label: string; cls: string }> = {
+    analyzing: { label: "Analyzuji…", cls: "processing" },
+    ready: { label: "Připraveno", cls: "uploaded" },
+    committing: { label: "Ukládám…", cls: "processing" },
+    updated: { label: "Uloženo", cls: "indexed" },
+    skipped: { label: "Přeskočeno", cls: "archived" },
     error: { label: "Chyba", cls: "failed" },
   };
   const { label, cls } = map[status];

@@ -33,7 +33,7 @@ import {
 } from "../ai/classification-service.js";
 import { authorizeDocumentWrite } from "./document-access.js";
 import { parseBatchItems, commitBatch } from "./batch-commit.js";
-import { getDownloadUrl } from "../storage/s3.js";
+import { getDownloadUrl, getObjectBuffer } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { env } from "../env.js";
 import { audit } from "../lib/audit.js";
@@ -388,6 +388,192 @@ documentRouter.post(
     res.status(201).json({ results });
   },
 );
+
+// Maximální počet dokumentů v jedné dávce přeřazení (ochrana paměti/času).
+const MAX_RECLASSIFY = 50;
+
+const reclassifyAnalyzeSchema = z.object({
+  documentIds: z.array(z.string().uuid()).min(1).max(MAX_RECLASSIFY),
+});
+
+// (a) Hromadné přeřazení – analýza: pro vybrané EXISTUJÍCÍ dokumenty stáhne
+// uložený soubor, extrahuje text a vrátí AI návrh klasifikace vedle stávajících
+// metadat. Každý dokument se zpracuje nezávisle, jedna chyba neshodí dávku.
+documentRouter.post("/reclassify/analyze", requireWriteAccess, async (req, res) => {
+  const parsed = reclassifyAnalyzeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Neplatný seznam dokumentů." });
+  }
+
+  const aiEnabled = classificationAvailable();
+  const { categories, tags } = await loadClassificationOptions();
+
+  const results = await Promise.all(
+    parsed.data.documentIds.map(async (documentId) => {
+      const base = {
+        documentId,
+        fileName: "",
+        current: null as null | {
+          title: string;
+          description: string;
+          documentType: DocumentType;
+          categoryId: string | null;
+          tagIds: string[];
+        },
+        suggestion: null as null | {
+          title: string;
+          description: string;
+          documentType: DocumentType;
+          categoryId: string | null;
+          tagIds: string[];
+        },
+        aiClassified: false,
+        error: null as string | null,
+      };
+
+      const access = await loadDocumentForWrite(documentId, req.currentUser!);
+      if (!access.ok) {
+        return { ...base, error: access.error };
+      }
+      const doc = access.doc;
+      const currentTagIds = await getDocumentTagIds(doc.id);
+      const current = {
+        title: doc.title,
+        description: doc.description ?? "",
+        documentType: doc.documentType as DocumentType,
+        categoryId: doc.categoryId,
+        tagIds: currentTagIds,
+      };
+      const withCurrent = { ...base, fileName: doc.originalFileName, current };
+
+      if (!aiEnabled) {
+        return withCurrent;
+      }
+
+      try {
+        const buffer = await getObjectBuffer(doc.objectPath);
+        const extracted = await extractText(buffer, doc.mimeType, doc.originalFileName);
+        const suggestion = await classifyDocument({
+          text: extracted.fullText,
+          fileName: doc.originalFileName,
+          categories,
+          tags,
+        });
+        if (!suggestion) {
+          return withCurrent;
+        }
+        return {
+          ...withCurrent,
+          suggestion: {
+            title: suggestion.title || doc.title,
+            description: suggestion.description,
+            documentType: suggestion.documentType,
+            categoryId: suggestion.categoryId,
+            tagIds: suggestion.tagIds,
+          },
+          aiClassified: true,
+        };
+      } catch (err) {
+        return {
+          ...withCurrent,
+          error: `Analýza selhala: ${String((err as Error).message)}`,
+        };
+      }
+    }),
+  );
+
+  res.json({ aiEnabled, results });
+});
+
+// Schéma jedné potvrzené položky přeřazení (metadata zvolená/upravená adminem).
+const reclassifyItemSchema = z.object({
+  documentId: z.string().uuid(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  categoryId: z.string().uuid().optional().or(z.literal("")),
+  documentType: z.string().optional(),
+  tagIds: z.array(z.string()).optional(),
+  skip: z.boolean().optional(),
+});
+
+const reclassifyCommitSchema = z.object({
+  items: z.array(reclassifyItemSchema).min(1).max(MAX_RECLASSIFY),
+});
+
+// (b) Hromadné přeřazení – potvrzení: aktualizuje metadata vybraných dokumentů.
+// Každý dokument se zpracuje nezávisle; jedna chyba neshodí zbytek dávky.
+// Obsah souboru se nemění, vyhledávání čte typ/název přes JOIN živě, takže
+// reindex není nutný – znovu zařadíme jen dokumenty, které ještě nejsou
+// zaindexované, aby se dostaly do fronty.
+documentRouter.post("/reclassify/commit", requireWriteAccess, async (req, res) => {
+  const parsed = reclassifyCommitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Neplatná metadata přeřazení." });
+  }
+
+  const results: {
+    documentId: string;
+    status: "updated" | "skipped" | "error";
+    error?: string;
+  }[] = [];
+
+  for (const item of parsed.data.items) {
+    if (item.skip) {
+      results.push({ documentId: item.documentId, status: "skipped" });
+      continue;
+    }
+    try {
+      const access = await loadDocumentForWrite(item.documentId, req.currentUser!);
+      if (!access.ok) {
+        results.push({
+          documentId: item.documentId,
+          status: "error",
+          error: access.error,
+        });
+        continue;
+      }
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (item.title !== undefined) updates.title = item.title;
+      if (item.description !== undefined) updates.description = item.description;
+      if (item.documentType !== undefined) updates.documentType = item.documentType;
+      if (item.categoryId !== undefined) {
+        updates.categoryId = item.categoryId === "" ? null : item.categoryId;
+      }
+
+      const [doc] = await db
+        .update(documents)
+        .set(updates)
+        .where(eq(documents.id, item.documentId))
+        .returning();
+      if (!doc) {
+        results.push({
+          documentId: item.documentId,
+          status: "error",
+          error: "Dokument nenalezen.",
+        });
+        continue;
+      }
+      if (item.tagIds !== undefined) {
+        await setDocumentTags(doc.id, item.tagIds);
+      }
+      // Reindex jen pokud dokument ještě není zaindexovaný (obsah se nemění).
+      if (doc.status !== "indexed") {
+        await enqueueDocument(doc.id, "reindex");
+      }
+      await audit(req, "reclassify", "document", doc.id, { title: doc.title });
+      results.push({ documentId: item.documentId, status: "updated" });
+    } catch (err) {
+      results.push({
+        documentId: item.documentId,
+        status: "error",
+        error: String((err as Error).message),
+      });
+    }
+  }
+
+  res.status(200).json({ results });
+});
 
 // Historie verzí dokumentu.
 documentRouter.get("/:id/versions", async (req, res) => {
