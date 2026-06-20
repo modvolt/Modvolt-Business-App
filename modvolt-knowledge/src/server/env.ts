@@ -20,6 +20,18 @@ function num(key: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Doplní schéma k S3 endpointu, pokud chybí. Mnoho poskytovatelů
+ * (např. Hetzner Object Storage) uvádí endpoint bez "https://"
+ * (např. "fsn1.your-objectstorage.com") a AWS SDK pak hlásí "Invalid URL".
+ */
+function normalizeEndpoint(value: string): string {
+  const v = value.trim();
+  if (!v) return v;
+  if (/^https?:\/\//i.test(v)) return v;
+  return `https://${v}`;
+}
+
 export const env = {
   nodeEnv: str("NODE_ENV", "development"),
   isProduction: str("NODE_ENV", "development") === "production",
@@ -37,8 +49,8 @@ export const env = {
   cookieSecure: bool("COOKIE_SECURE", str("NODE_ENV", "development") === "production"),
 
   s3: {
-    endpoint: str("S3_ENDPOINT"),
-    publicEndpoint: str("S3_PUBLIC_ENDPOINT"),
+    endpoint: normalizeEndpoint(str("S3_ENDPOINT")),
+    publicEndpoint: normalizeEndpoint(str("S3_PUBLIC_ENDPOINT")),
     region: str("S3_REGION", "us-east-1"),
     bucket: str("S3_BUCKET"),
     accessKeyId: str("S3_ACCESS_KEY_ID"),

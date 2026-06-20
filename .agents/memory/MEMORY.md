@@ -2,3 +2,4 @@
 - [Runtime-tunable admin settings](modvolt-runtime-settings.md) — ČSN lock keywords + active prompt version live in app_settings, read at runtime with a safety floor; new defaults need db:migrate.
 - [Batch import design](modvolt-batch-import.md) — analyze+commit are stateless (client re-uploads files); per-file isolation; AI suggestions constrained to enum + existing records.
 - [Reclassify existing docs](modvolt-reclassify.md) — bulk AI re-sort of stored docs; metadata-only changes need no reindex (search JOINs type/title live).
+- [Modvolt ops gotchas](modvolt-knowledge-ops.md) — route handlers crash whole server on DB/IO rejection; schema drift needs db:migrate; S3_ENDPOINT needs scheme; local auth test needs x-forwarded-proto:https.
