@@ -74,6 +74,27 @@ export interface IndexingJobRow {
   createdAt: string;
 }
 
+export interface BatchAnalyzeItem {
+  fileName: string;
+  sizeBytes: number;
+  documentType: string;
+  categoryId: string | null;
+  tagIds: string[];
+  title: string;
+  description: string;
+  aiClassified: boolean;
+  duplicate: { id: string; title: string } | null;
+  error: string | null;
+}
+
+export interface BatchCommitResult {
+  fileName: string;
+  status: "created" | "skipped" | "duplicate" | "error";
+  documentId?: string;
+  existingDocumentId?: string;
+  error?: string;
+}
+
 export interface SearchFilters {
   sourceMode?: SourceMode;
   categoryId?: string;
@@ -160,6 +181,16 @@ export const api = {
     req<{ ok: boolean }>(`/documents/${id}`, { method: "DELETE" }),
   downloadDocument: (id: string) =>
     req<{ url: string }>(`/documents/${id}/download`),
+  batchAnalyze: (form: FormData) =>
+    req<{ aiEnabled: boolean; results: BatchAnalyzeItem[] }>(
+      "/documents/batch/analyze",
+      { method: "POST", body: form },
+    ),
+  batchCommit: (form: FormData) =>
+    req<{ results: BatchCommitResult[] }>("/documents/batch/commit", {
+      method: "POST",
+      body: form,
+    }),
 
   // Search & AI
   search: (query: string, filters: SearchFilters = {}) =>

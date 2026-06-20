@@ -21,18 +21,23 @@ export type DocumentStatus =
 
 export type DocumentVisibility = "all_users" | "admin_only";
 
-export type DocumentType =
-  | "standard"
-  | "norm"
-  | "manual"
-  | "internal_procedure"
-  | "datasheet"
-  | "legal"
-  | "bozp"
-  | "template"
-  | "manufacturer_manual"
-  | "troubleshooting"
-  | "other";
+// Kanonický seznam typů dokumentů. Slouží jako jediný zdroj pravdy pro
+// frontend (výběry/filtry), server (validace) i AI klasifikaci.
+export const DOCUMENT_TYPES = [
+  "standard",
+  "norm",
+  "manual",
+  "internal_procedure",
+  "datasheet",
+  "legal",
+  "bozp",
+  "template",
+  "manufacturer_manual",
+  "troubleshooting",
+  "other",
+] as const;
+
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export type Confidence = "low" | "medium" | "high";
 

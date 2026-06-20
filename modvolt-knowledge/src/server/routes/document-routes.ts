@@ -3,7 +3,14 @@ import multer from "multer";
 import { z } from "zod";
 import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { documents, documentVersions, documentTagLinks } from "../db/schema.js";
+import {
+  documents,
+  documentVersions,
+  documentTagLinks,
+  documentCategories,
+  documentTags,
+} from "../db/schema.js";
+import { asc } from "drizzle-orm";
 import {
   requireAuth,
   requireRole,
@@ -14,8 +21,16 @@ import {
   deleteDocument,
   setDocumentTags,
   getDocumentTagIds,
+  findDocumentByHash,
+  isAcceptedDocument,
+  sha256,
   DuplicateDocumentError,
 } from "../documents/document-service.js";
+import { extractText } from "../documents/text-extraction.js";
+import {
+  classifyDocument,
+  classificationAvailable,
+} from "../ai/classification-service.js";
 import { authorizeDocumentWrite } from "./document-access.js";
 import { getDownloadUrl } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
@@ -28,6 +43,16 @@ export const documentRouter = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.openai.maxUploadMb * 1024 * 1024 },
+});
+
+// Hromadný import: více souborů najednou (limit počtu kvůli paměti).
+const MAX_BATCH_FILES = 50;
+const batchUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: env.openai.maxUploadMb * 1024 * 1024,
+    files: MAX_BATCH_FILES,
+  },
 });
 
 documentRouter.use(requireAuth);
@@ -226,6 +251,201 @@ documentRouter.post(
       }
       res.status(400).json({ error: String((err as Error).message) });
     }
+  },
+);
+
+// Načte kanonické kategorie a štítky pro klasifikaci (id + název).
+async function loadClassificationOptions() {
+  const [cats, tgs] = await Promise.all([
+    db
+      .select({ id: documentCategories.id, name: documentCategories.name })
+      .from(documentCategories)
+      .orderBy(asc(documentCategories.name)),
+    db
+      .select({ id: documentTags.id, name: documentTags.name })
+      .from(documentTags)
+      .orderBy(asc(documentTags.name)),
+  ]);
+  return { categories: cats, tags: tgs };
+}
+
+// (a) Hromadná analýza: přijme více souborů, extrahuje text, vrátí pro každý
+// soubor AI návrh klasifikace + detekci duplicit. Každý soubor se zpracuje
+// nezávisle, jedna chyba neshodí celou dávku.
+documentRouter.post(
+  "/batch/analyze",
+  requireWriteAccess,
+  batchUpload.array("files", MAX_BATCH_FILES),
+  async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) return res.status(400).json({ error: "Chybí soubory." });
+
+    const aiEnabled = classificationAvailable();
+    const { categories, tags } = await loadClassificationOptions();
+
+    const results = await Promise.all(
+      files.map(async (file) => {
+        const fileName = file.originalname;
+        const sizeBytes = file.size;
+        const fallbackTitle = fileName.replace(/\.[^.]+$/, "");
+        const base = {
+          fileName,
+          sizeBytes,
+          documentType: "other" as DocumentType,
+          categoryId: null as string | null,
+          tagIds: [] as string[],
+          title: fallbackTitle,
+          description: "",
+          aiClassified: false,
+          duplicate: null as { id: string; title: string } | null,
+          error: null as string | null,
+        };
+
+        if (!isAcceptedDocument(fileName)) {
+          return { ...base, error: "Nepodporovaný typ souboru." };
+        }
+
+        // Detekce duplicit podle SHA-256 vůči existujícím dokumentům.
+        const hash = sha256(file.buffer);
+        const existing = await findDocumentByHash(hash);
+        const duplicate = existing
+          ? { id: existing.id, title: existing.title }
+          : null;
+
+        // Bez AI vracíme rozumné výchozí hodnoty (admin doplní ručně).
+        if (!aiEnabled) {
+          return { ...base, duplicate };
+        }
+
+        try {
+          const extracted = await extractText(
+            file.buffer,
+            file.mimetype,
+            fileName,
+          );
+          const suggestion = await classifyDocument({
+            text: extracted.fullText,
+            fileName,
+            categories,
+            tags,
+          });
+          if (!suggestion) {
+            return { ...base, duplicate };
+          }
+          return {
+            ...base,
+            documentType: suggestion.documentType,
+            categoryId: suggestion.categoryId,
+            tagIds: suggestion.tagIds,
+            title: suggestion.title || fallbackTitle,
+            description: suggestion.description,
+            aiClassified: true,
+            duplicate,
+          };
+        } catch (err) {
+          // Selhání jednoho souboru nesmí shodit zbytek dávky.
+          return {
+            ...base,
+            duplicate,
+            error: `Analýza selhala: ${String((err as Error).message)}`,
+          };
+        }
+      }),
+    );
+
+    res.json({ aiEnabled, results });
+  },
+);
+
+// Schéma jedné položky potvrzené dávky (metadata zvolená/upravená adminem).
+const batchItemSchema = z.object({
+  title: z.string().optional(),
+  description: z.string().optional(),
+  categoryId: z.string().uuid().optional().or(z.literal("")),
+  documentType: z.string().optional(),
+  visibility: z.enum(["all_users", "admin_only"]).optional(),
+  tagIds: z.array(z.string()).optional(),
+  skip: z.boolean().optional(),
+});
+
+// (b) Potvrzení dávky: přijme soubory + odpovídající metadata (ve stejném
+// pořadí) a každý soubor vytvoří přes existující pipeline createDocument.
+// Každý soubor se zpracuje nezávisle; výsledek je per-soubor.
+documentRouter.post(
+  "/batch/commit",
+  requireWriteAccess,
+  batchUpload.array("files", MAX_BATCH_FILES),
+  async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) return res.status(400).json({ error: "Chybí soubory." });
+
+    let rawItems: unknown;
+    try {
+      rawItems = JSON.parse(String(req.body.items ?? "[]"));
+    } catch {
+      return res.status(400).json({ error: "Neplatná metadata dávky." });
+    }
+    const parsed = z.array(batchItemSchema).safeParse(rawItems);
+    if (!parsed.success || parsed.data.length !== files.length) {
+      return res
+        .status(400)
+        .json({ error: "Počet metadat neodpovídá počtu souborů." });
+    }
+
+    const results: {
+      fileName: string;
+      status: "created" | "skipped" | "duplicate" | "error";
+      documentId?: string;
+      existingDocumentId?: string;
+      error?: string;
+    }[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const item = parsed.data[i];
+      const fileName = file.originalname;
+
+      if (item.skip) {
+        results.push({ fileName, status: "skipped" });
+        continue;
+      }
+
+      try {
+        const doc = await createDocument({
+          buffer: file.buffer,
+          originalFileName: fileName,
+          mimeType: file.mimetype,
+          title: item.title,
+          description: item.description,
+          categoryId: item.categoryId || null,
+          documentType: (item.documentType as DocumentType) || "other",
+          visibility: (item.visibility as DocumentVisibility) || "all_users",
+          tagIds: item.tagIds,
+          uploadedByUserId: req.currentUser!.id,
+        });
+        await audit(req, "upload", "document", doc.id, {
+          title: doc.title,
+          batch: true,
+        });
+        results.push({ fileName, status: "created", documentId: doc.id });
+      } catch (err) {
+        if (err instanceof DuplicateDocumentError) {
+          results.push({
+            fileName,
+            status: "duplicate",
+            existingDocumentId: err.existingDocumentId,
+          });
+        } else {
+          results.push({
+            fileName,
+            status: "error",
+            error: String((err as Error).message),
+          });
+        }
+      }
+    }
+
+    res.status(201).json({ results });
   },
 );
 
