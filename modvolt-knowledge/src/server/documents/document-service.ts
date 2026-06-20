@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import AdmZip from "adm-zip";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
@@ -38,6 +39,68 @@ const MIME_BY_EXT: Record<string, string> = {
 
 export function isAcceptedDocument(fileName: string): boolean {
   return ACCEPTED_EXT.test(fileName);
+}
+
+export function isZipFile(fileName: string): boolean {
+  return /\.zip$/i.test(fileName);
+}
+
+export interface ExpandedZipEntry {
+  fileName: string;
+  buffer: Buffer;
+}
+
+export interface SkippedZipEntry {
+  fileName: string;
+  reason: string;
+}
+
+export interface ExpandZipResult {
+  files: ExpandedZipEntry[];
+  skipped: SkippedZipEntry[];
+}
+
+/**
+ * Rozbalí ZIP archiv v paměti a vrátí přijatelné dokumenty + seznam přeskočených
+ * položek s důvodem. Velikost každé položky se kontroluje z hlavičky (bez
+ * dekomprese) → ochrana proti „zip bombám". Adresáře a metadata macOS se ignorují.
+ */
+export function expandZip(
+  buffer: Buffer,
+  opts: { maxEntryBytes: number; maxFiles: number },
+): ExpandZipResult {
+  const zip = new AdmZip(buffer);
+  const files: ExpandedZipEntry[] = [];
+  const skipped: SkippedZipEntry[] = [];
+
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    const fullName = entry.entryName;
+    const baseName = fullName.split("/").pop() ?? fullName;
+    // Přeskoč skryté soubory a metadata macOS (__MACOSX/, ._soubor).
+    if (!baseName || baseName.startsWith(".") || fullName.startsWith("__MACOSX/")) {
+      continue;
+    }
+    if (!isAcceptedDocument(baseName)) {
+      skipped.push({ fileName: fullName, reason: "Nepodporovaný typ souboru." });
+      continue;
+    }
+    // Velikost z hlavičky (nekomprimovaná) – kontrola před samotnou dekompresí.
+    if (entry.header.size > opts.maxEntryBytes) {
+      skipped.push({ fileName: fullName, reason: "Soubor je příliš velký." });
+      continue;
+    }
+    if (files.length >= opts.maxFiles) {
+      skipped.push({
+        fileName: fullName,
+        reason: `Překročen limit ${opts.maxFiles} souborů v dávce.`,
+      });
+      continue;
+    }
+    files.push({ fileName: baseName, buffer: entry.getData() });
+  }
+
+  return { files, skipped };
 }
 
 export function sha256(buffer: Buffer): string {

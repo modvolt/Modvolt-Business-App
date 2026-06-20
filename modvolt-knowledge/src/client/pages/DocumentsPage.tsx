@@ -423,6 +423,15 @@ interface BatchRow {
   skip: boolean;
 }
 
+// Převede base64 obsah (z rozbaleného ZIPu na serveru) zpět na File, aby šel
+// poslat do nezměněného analyze/commit flow stejně jako lokálně vybraný soubor.
+function base64ToFile(b64: string, name: string): File {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], name);
+}
+
 function newRow(file: File): BatchRow {
   return {
     file,
@@ -458,14 +467,56 @@ function BatchImport({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [zipNotices, setZipNotices] = useState<
+    { fileName: string; reason: string }[]
+  >([]);
 
   const updateRow = (idx: number, patch: Partial<BatchRow>) =>
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
 
-  const addFiles = (files: FileList | File[]) => {
+  // Přidá běžné soubory přímo a ZIP archivy rozbalí na serveru, načež jejich
+  // obsah vloží do stejného review/commit flow. Přeskočené položky ze ZIPu se
+  // zobrazí jako poznámky.
+  const addFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (!list.length) return;
-    setRows((prev) => [...prev, ...list.map(newRow)]);
+    const zips = list.filter((f) => /\.zip$/i.test(f.name));
+    const plain = list.filter((f) => !/\.zip$/i.test(f.name));
+    if (plain.length) setRows((prev) => [...prev, ...plain.map(newRow)]);
+    if (!zips.length) return;
+
+    setBusy(true);
+    setError("");
+    try {
+      for (const zip of zips) {
+        const form = new FormData();
+        form.append("file", zip);
+        const res = await api.batchExpandZip(form);
+        const expanded = res.files.map((f) =>
+          newRow(base64ToFile(f.contentBase64, f.fileName)),
+        );
+        if (expanded.length) setRows((prev) => [...prev, ...expanded]);
+        if (res.skipped.length) {
+          setZipNotices((prev) => [
+            ...prev,
+            ...res.skipped.map((s) => ({
+              fileName: `${zip.name} → ${s.fileName}`,
+              reason: s.reason,
+            })),
+          ]);
+        }
+        if (!expanded.length && !res.skipped.length) {
+          setZipNotices((prev) => [
+            ...prev,
+            { fileName: zip.name, reason: "Archiv neobsahuje podporované dokumenty." },
+          ]);
+        }
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Analýza po jednom souboru → viditelný průběh i izolace chyb.
@@ -576,6 +627,7 @@ function BatchImport({
     setRows([]);
     setPhase("select");
     setError("");
+    setZipNotices([]);
   };
 
   const toggleRowTag = (idx: number, tagId: string) =>
@@ -625,23 +677,42 @@ function BatchImport({
             onDrop={(e) => {
               e.preventDefault();
               setDragOver(false);
-              addFiles(e.dataTransfer.files);
+              void addFiles(e.dataTransfer.files);
             }}
           >
             <p className="muted" style={{ marginTop: 0 }}>
-              Přetáhněte sem soubory (PDF, DOCX, XLSX, TXT, MD, CSV) nebo je
-              vyberte:
+              Přetáhněte sem soubory (PDF, DOCX, XLSX, TXT, MD, CSV) nebo celou
+              složku zabalenou do .zip — archiv se rozbalí automaticky:
             </p>
             <input
               type="file"
               multiple
-              accept=".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv"
+              accept=".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv,.zip"
+              disabled={busy}
               onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
+                if (e.target.files) void addFiles(e.target.files);
                 e.target.value = "";
               }}
             />
+            {busy && (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Rozbaluji archiv…
+              </p>
+            )}
           </div>
+
+          {zipNotices.length > 0 && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <strong>Přeskočené položky z archivu:</strong>
+              <ul style={{ marginBottom: 0 }}>
+                {zipNotices.map((n, i) => (
+                  <li key={i} className="muted">
+                    {n.fileName} – {n.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {rows.length > 0 && (
             <>

@@ -128,6 +128,11 @@ export interface ReclassifyCommitResult {
   error?: string;
 }
 
+export interface ZipExpandResult {
+  files: { fileName: string; sizeBytes: number; contentBase64: string }[];
+  skipped: { fileName: string; reason: string }[];
+}
+
 export interface SearchFilters {
   sourceMode?: SourceMode;
   categoryId?: string;
@@ -233,6 +238,11 @@ export const api = {
     req<{ results: ReclassifyCommitResult[] }>("/documents/reclassify/commit", {
       method: "POST",
       body: JSON.stringify({ items }),
+    }),
+  batchExpandZip: (form: FormData) =>
+    req<ZipExpandResult>("/documents/batch/zip", {
+      method: "POST",
+      body: form,
     }),
 
   // Search & AI

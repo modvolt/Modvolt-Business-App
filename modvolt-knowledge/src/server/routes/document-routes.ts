@@ -23,6 +23,8 @@ import {
   getDocumentTagIds,
   findDocumentByHash,
   isAcceptedDocument,
+  isZipFile,
+  expandZip,
   sha256,
   DuplicateDocumentError,
 } from "../documents/document-service.js";
@@ -48,12 +50,21 @@ const upload = multer({
 
 // Hromadný import: více souborů najednou (limit počtu kvůli paměti).
 const MAX_BATCH_FILES = 50;
+const MAX_ENTRY_BYTES = env.openai.maxUploadMb * 1024 * 1024;
 const batchUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: env.openai.maxUploadMb * 1024 * 1024,
+    fileSize: MAX_ENTRY_BYTES,
     files: MAX_BATCH_FILES,
   },
+});
+
+// ZIP archiv může být výrazně větší než jeden dokument (sbalí celou složku),
+// proto vlastní, velkorysejší limit. Jednotlivé položky uvnitř se kontrolují
+// proti MAX_ENTRY_BYTES až při rozbalení.
+const zipUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ENTRY_BYTES * 5 },
 });
 
 documentRouter.use(requireAuth);
@@ -269,6 +280,57 @@ async function loadClassificationOptions() {
   ]);
   return { categories: cats, tags: tgs };
 }
+
+// (0) Rozbalení ZIP: admin nahraje jeden .zip se složkou dokumentů. Server jej
+// rozbalí, vyfiltruje přijatelné typy a vrátí obsah jednotlivých souborů
+// (base64). Klient z nich vytvoří soubory a pošle je do beze změny stejného
+// analyze/commit flow. Nepodporované/příliš velké položky vrací jako přeskočené.
+documentRouter.post(
+  "/batch/zip",
+  requireWriteAccess,
+  zipUpload.single("file"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Chybí ZIP soubor." });
+    if (!isZipFile(req.file.originalname)) {
+      return res
+        .status(400)
+        .json({ error: "Nahrajte archiv ve formátu .zip." });
+    }
+
+    let expanded;
+    try {
+      expanded = expandZip(req.file.buffer, {
+        maxEntryBytes: MAX_ENTRY_BYTES,
+        maxFiles: MAX_BATCH_FILES,
+      });
+    } catch {
+      return res
+        .status(400)
+        .json({ error: "ZIP archiv se nepodařilo otevřít." });
+    }
+
+    if (!expanded.files.length && !expanded.skipped.length) {
+      return res
+        .status(400)
+        .json({ error: "ZIP archiv neobsahuje žádné soubory." });
+    }
+
+    await audit(req, "zip_expand", "document", undefined, {
+      archive: req.file.originalname,
+      accepted: expanded.files.length,
+      skipped: expanded.skipped.length,
+    });
+
+    res.json({
+      files: expanded.files.map((f) => ({
+        fileName: f.fileName,
+        sizeBytes: f.buffer.length,
+        contentBase64: f.buffer.toString("base64"),
+      })),
+      skipped: expanded.skipped,
+    });
+  },
+);
 
 // (a) Hromadná analýza: přijme více souborů, extrahuje text, vrátí pro každý
 // soubor AI návrh klasifikace + detekci duplicit. Každý soubor se zpracuje
