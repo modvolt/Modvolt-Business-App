@@ -3,7 +3,7 @@ import multer from "multer";
 import { z } from "zod";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { documents, documentCategories } from "../db/schema.js";
+import { documents, documentVersions } from "../db/schema.js";
 import {
   requireAuth,
   requireRole,
@@ -12,6 +12,7 @@ import {
 import {
   createDocument,
   deleteDocument,
+  DuplicateDocumentError,
 } from "../documents/document-service.js";
 import { getDownloadUrl } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
@@ -31,7 +32,8 @@ documentRouter.use(requireAuth);
 // Ověří, že přihlášený uživatel smí daný dokument měnit.
 // Admin smí vše; ostatní jen vlastní dokumenty s viditelností all_users.
 async function loadDocumentForWrite(
-  req: Parameters<Parameters<typeof documentRouter.patch>[1]>[0],
+  id: string,
+  user: { id: string; role: string },
 ): Promise<
   | { ok: true; doc: typeof documents.$inferSelect }
   | { ok: false; status: number; error: string }
@@ -39,11 +41,10 @@ async function loadDocumentForWrite(
   const rows = await db
     .select()
     .from(documents)
-    .where(eq(documents.id, req.params.id))
+    .where(eq(documents.id, id))
     .limit(1);
   const doc = rows[0];
   if (!doc) return { ok: false, status: 404, error: "Dokument nenalezen." };
-  const user = req.currentUser!;
   if (user.role === "admin") return { ok: true, doc };
   if (doc.visibility === "admin_only") {
     return { ok: false, status: 403, error: "Nedostatečná oprávnění." };
@@ -112,7 +113,8 @@ documentRouter.get("/:id/download", async (req, res) => {
   }
 });
 
-const uploadSchema = z.object({
+// Pole metadat společná pro upload i úpravu (odpovídají sloupcům documents).
+const metadataSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   categoryId: z.string().uuid().optional().or(z.literal("")),
@@ -121,6 +123,12 @@ const uploadSchema = z.object({
   sourceName: z.string().optional(),
   sourceUrl: z.string().optional(),
   version: z.string().optional(),
+});
+
+// Upload navíc umožní vytvořit novou verzi existujícího dokumentu.
+const uploadSchema = metadataSchema.extend({
+  replaceDocumentId: z.string().uuid().optional(),
+  changeNote: z.string().optional(),
 });
 
 // Nahrání dokumentu (admin nebo user dle oprávnění).
@@ -133,6 +141,15 @@ documentRouter.post(
     const parsed = uploadSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Neplatná metadata dokumentu." });
+    }
+    // Nová verze existujícího dokumentu vyžaduje oprávnění na cílový dokument.
+    if (parsed.data.replaceDocumentId) {
+      const access = await loadDocumentForWrite(
+        parsed.data.replaceDocumentId,
+        req.currentUser!,
+      );
+      if (!access.ok)
+        return res.status(access.status).json({ error: access.error });
     }
     try {
       const doc = await createDocument({
@@ -147,21 +164,50 @@ documentRouter.post(
         sourceName: parsed.data.sourceName,
         sourceUrl: parsed.data.sourceUrl,
         version: parsed.data.version,
+        replaceDocumentId: parsed.data.replaceDocumentId,
+        changeNote: parsed.data.changeNote,
         uploadedByUserId: req.currentUser!.id,
       });
-      await audit(req, "upload", "document", doc.id, { title: doc.title });
+      const action = parsed.data.replaceDocumentId ? "new_version" : "upload";
+      await audit(req, action, "document", doc.id, { title: doc.title });
       res.status(201).json({ document: doc });
     } catch (err) {
+      if (err instanceof DuplicateDocumentError) {
+        return res.status(409).json({
+          error: err.message,
+          existingDocumentId: err.existingDocumentId,
+        });
+      }
       res.status(400).json({ error: String((err as Error).message) });
     }
   },
 );
 
+// Historie verzí dokumentu.
+documentRouter.get("/:id/versions", async (req, res) => {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.id, req.params.id))
+    .limit(1);
+  const doc = rows[0];
+  if (!doc) return res.status(404).json({ error: "Dokument nenalezen." });
+  if (doc.visibility === "admin_only" && req.currentUser!.role !== "admin") {
+    return res.status(403).json({ error: "Nedostatečná oprávnění." });
+  }
+  const versions = await db
+    .select()
+    .from(documentVersions)
+    .where(eq(documentVersions.documentId, req.params.id))
+    .orderBy(desc(documentVersions.createdAt));
+  res.json({ versions });
+});
+
 // Aktualizace metadat.
 documentRouter.patch("/:id", requireWriteAccess, async (req, res) => {
-  const access = await loadDocumentForWrite(req);
+  const access = await loadDocumentForWrite(req.params.id, req.currentUser!);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
-  const parsed = uploadSchema.safeParse(req.body);
+  const parsed = metadataSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Neplatná metadata." });
   }
@@ -181,7 +227,7 @@ documentRouter.patch("/:id", requireWriteAccess, async (req, res) => {
 
 // Znovu zaindexovat.
 documentRouter.post("/:id/reindex", requireWriteAccess, async (req, res) => {
-  const access = await loadDocumentForWrite(req);
+  const access = await loadDocumentForWrite(req.params.id, req.currentUser!);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
   await enqueueDocument(req.params.id, "reindex");
   await audit(req, "reindex", "document", req.params.id);

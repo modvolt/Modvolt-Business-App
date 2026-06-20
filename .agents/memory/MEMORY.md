@@ -1,0 +1,1 @@
+- [Modvolt Knowledge constraints](modvolt-knowledge.md) — standalone RAG app, zero Replit runtime dep; citation grounding + dedup/versioning invariants.

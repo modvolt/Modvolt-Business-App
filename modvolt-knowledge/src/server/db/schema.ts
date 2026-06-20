@@ -8,6 +8,7 @@ import {
   jsonb,
   vector,
   index,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
@@ -73,7 +74,7 @@ export const documents = pgTable(
     statusIdx: index("documents_status_idx").on(t.status),
     categoryIdx: index("documents_category_idx").on(t.categoryId),
     typeIdx: index("documents_type_idx").on(t.documentType),
-    hashIdx: index("documents_sha256_idx").on(t.sha256Hash),
+    hashIdx: uniqueIndex("documents_sha256_idx").on(t.sha256Hash),
   }),
 );
 

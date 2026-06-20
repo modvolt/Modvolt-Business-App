@@ -111,14 +111,34 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
   answer.citations = (answer.citations ?? []).filter(
     (c) => c.chunkId && validChunkIds.has(c.chunkId),
   );
+  // Webové citace musí odkazovat na skutečně nalezený výsledek hledání,
+  // jinak by model mohl uvést smyšlený zdroj a obejít kontrolu citací.
+  const validWebUrls = new Set(webResults.map((w) => w.url));
+  answer.webCitations = (answer.webCitations ?? []).filter(
+    (c) => c.url && validWebUrls.has(c.url),
+  );
   const hadSources = hits.length > 0 || webResults.length > 0;
   const hasAnyCitation =
-    answer.citations.length > 0 || (answer.webCitations?.length ?? 0) > 0;
+    answer.citations.length > 0 || answer.webCitations.length > 0;
+  // Tvrdé vynucení citací: pokud existovaly zdroje, ale odpověď neobsahuje
+  // žádnou ověřitelnou citaci, nevracíme nepodloženou odpověď "z hlavy" -
+  // nahradíme ji bezpečným sdělením a označíme jako nedostatečně podloženou.
   if (answer.answer.trim().length > 0 && hadSources && !hasAnyCitation) {
+    answer.answer =
+      "Na základě dostupných zdrojů nelze odpověď spolehlivě podložit citacemi, proto ji neuvádím. " +
+      "Zformulujte prosím dotaz konkrétněji nebo doplňte relevantní dokumenty do znalostní databáze.";
     answer.hasSufficientSources = false;
     answer.confidence = "low";
     answer.warnings = [
-      "Odpověď neobsahuje ověřitelné citace zdrojů, proto ji nelze považovat za podloženou. Ověřte informace v původních dokumentech.",
+      "Odpověď nebyla podložena ověřitelnými citacemi zdrojů, proto nebyla poskytnuta. Ověřte informace v původních dokumentech.",
+      ...(answer.warnings ?? []),
+    ];
+  } else if (answer.answer.trim().length > 0 && !hadSources) {
+    // Žádné interní ani webové zdroje k dispozici.
+    answer.hasSufficientSources = false;
+    if (answer.confidence === "high") answer.confidence = "low";
+    answer.warnings = [
+      "Nebyly nalezeny žádné relevantní interní dokumenty ani webové zdroje. Odpověď nelze považovat za podloženou.",
       ...(answer.warnings ?? []),
     ];
   }
