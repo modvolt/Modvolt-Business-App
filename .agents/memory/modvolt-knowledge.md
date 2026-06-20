@@ -23,6 +23,11 @@ Categories, tags, indexing, audit, settings, and users pages are admin-gated in 
 **Why:** Plan required admin gating; leaving categories/tags visible to all was flagged as a requirement/consistency miss.
 **How to apply:** Gate a page in both Layout visibility and App routing together; never gate only one.
 
+## ČSN hard-lock keyword matching must be Unicode-aware
+The `csn_only` hard-lock keyword patterns (`resolveSourceMode`) must NOT use JavaScript `\b` next to Czech-diacritic letters (ě, í, č, Č, ů, …). JS `\b` is ASCII-only, so `\buzemnění\b`, `\bČSN\b`, etc. silently never match — leaving norm queries un-locked and able to leak to web search. Use Unicode-aware boundaries: `(?<![\p{L}\p{N}])…(?![\p{L}\p{N}])` with the `u` flag.
+**Why:** End-to-end verification found "uzemnění a pospojování" (and most accented norm keywords) were NOT locked; they only appeared to work when the numeric `33 2000` ČSN-series pattern happened to catch the query.
+**How to apply:** When adding/editing any ČSN lock keyword, build it via the Unicode-boundary helper, never a raw `\b` literal. Keep only-leading-boundary patterns (e.g. prefix matches like `elektroinstalac`, `IEC\s*\d`) without a trailing boundary.
+
 ## Dedup + versioning integrity
 `documents.sha256_hash` has a DB-level UNIQUE index (not just a pre-check). Insert/replace paths must catch PG unique violation (code `23505`) and map to a 409 duplicate, in addition to the `findDocumentByHash` pre-check. `replaceDocument` must wrap version-archive insert + chunk `isCurrent=false` demotion + documents update in ONE `db.transaction`. S3 upload happens before the transaction (orphan on failure is harmless since path is hash-derived).
 **Why:** Pre-check alone races under concurrent uploads; multi-statement versioning without a transaction can leave inconsistent state.
