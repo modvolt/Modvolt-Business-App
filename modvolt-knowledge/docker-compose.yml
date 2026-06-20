@@ -1,6 +1,11 @@
 # ---------------------------------------------------------------------------
 # Modvolt Knowledge - docker-compose
 #
+# Migrace: aplikace si sama aplikuje čekající databázové migrace při startu,
+# PŘED servírováním provozu (viz src/server/index.ts). Žádný samostatný
+# migrační krok není potřeba; pokud migrace selžou, kontejner spadne a
+# nasazení selže hlasitě místo běhu proti zastaralému schématu.
+#
 # Dvě varianty provozu:
 #  1) Coolify s externí PostgreSQL službou:
 #     - nech zakomentovanou službu "db" a nastav DATABASE_URL na externí databázi

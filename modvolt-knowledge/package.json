@@ -11,7 +11,7 @@
     "build:server": "esbuild src/server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/server/index.js",
     "start": "node dist/server/index.js",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/server/db/migrate.ts",
+    "db:migrate": "tsx src/server/db/migrate-cli.ts",
     "db:seed-admin": "tsx src/server/db/seed-admin.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --experimental-test-module-mocks --test \"src/server/**/*.test.ts\""

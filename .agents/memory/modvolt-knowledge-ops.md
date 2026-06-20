@@ -8,10 +8,10 @@ The Express route handlers (e.g. `/api/search`, `/api/ask`) `await` DB/IO calls 
 **Why:** During live e2e, a single bad query took the whole server down; root cause was schema drift (below), but the crash surfaced as `fetch failed`/`ECONNREFUSED`, masking the real DB error.
 **How to apply:** When debugging a server that dies on one request, reproduce the failing operation in isolation via `tsx` (import the service/query directly) to see the real stack — the HTTP path hides it. Wrapping handlers / adding a global handler is a worthwhile hardening follow-up.
 
-## Schema drift = hard crash, run db:migrate
-Drizzle migrations live in `modvolt-knowledge/drizzle/`. The DB can lag the schema (pending migrations not auto-applied). A missing column (e.g. `search_queries.csn_lock_*`) makes the insert throw → unhandledRejection → server crash.
-**Why:** The `search_queries` table was 2 migrations behind; every `/search` and `/ask` insert crashed the process.
-**How to apply:** After any schema change or before live testing, run `npm run db:migrate` (it also creates pgvector + seeds defaults). Verify with `\d <table>` that expected columns exist.
+## Schema drift = hard crash; migrations now auto-apply on startup
+Drizzle migrations live in `modvolt-knowledge/drizzle/`. A missing column (e.g. `search_queries.csn_lock_*`) makes the insert throw → unhandledRejection → server crash.
+**Why:** The `search_queries` table was once 2 migrations behind; every `/search` and `/ask` insert crashed the process. Migrations only ran via manual `npm run db:migrate`, so a Docker/Coolify deploy could ship code against an out-of-date DB.
+**How to apply:** `server/index.ts` now calls `runMigrations()` (exported from `db/migrate.ts`) after `validateEnv()` and BEFORE `app.listen` — pending migrations apply on every boot; failure throws → `process.exit(1)` (loud fail, no serving a broken schema). `runMigrations()` is idempotent (pgvector + migrate + seedDefaults). The CLI `npm run db:migrate` now runs `db/migrate-cli.ts` (thin wrapper). NOTE: `migrate.ts` resolves the `drizzle/` folder via existence-checked candidates (`findMigrationsFolder`) because esbuild bundles `index.ts` into `dist/server/index.js`, shifting `import.meta.url` depth — a single `__dirname`-relative path breaks in the bundle.
 
 ## S3_ENDPOINT must include a scheme
 The AWS SDK throws `TypeError: Invalid URL` for endpoints without `http(s)://` (e.g. Hetzner `fsn1.your-objectstorage.com`). `env.ts` now normalizes via `normalizeEndpoint()` (prepends `https://`). HeadBucket/Put/Get/List/Delete all work against Hetzner with `forcePathStyle=true`.

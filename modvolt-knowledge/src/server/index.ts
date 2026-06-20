@@ -1,6 +1,7 @@
 import { createApp } from "./app.js";
 import { env, validateEnv } from "./env.js";
 import { logger } from "./lib/logger.js";
+import { runMigrations } from "./db/migrate.js";
 import { startIndexingWorker } from "./indexing/worker.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   validateEnv();
+
+  // Aplikuj čekající migrace PŘED servírováním provozu. Pokud selžou, start
+  // selže hlasitě místo toho, aby server běžel proti zastaralému schématu
+  // (chybějící sloupec = pád každého /search a /ask požadavku).
+  logger.info("Aplikuji čekající databázové migrace...");
+  try {
+    await runMigrations();
+  } catch (err) {
+    logger.error(
+      "Databázové migrace selhaly – server se nespustí. Zkontrolujte DATABASE_URL a dostupnost databáze.",
+      String(err),
+    );
+    throw err;
+  }
+  logger.info("Databázové migrace jsou aktuální.");
+
   const app = createApp();
 
   if (env.isProduction) {

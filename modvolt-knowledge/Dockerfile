@@ -38,4 +38,8 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# Server sám aplikuje čekající migrace při startu (před servírováním provozu).
+# Pokud migrace selžou, proces skončí s nenulovým kódem a Coolify/Docker
+# nasazení selže hlasitě místo běhu proti zastaralému schématu. Není tedy
+# potřeba samostatný deploy krok pro `npm run db:migrate`.
 CMD ["node", "dist/server/index.js"]
