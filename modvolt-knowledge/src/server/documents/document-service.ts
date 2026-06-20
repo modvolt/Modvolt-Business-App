@@ -41,6 +41,12 @@ export function isAcceptedDocument(fileName: string): boolean {
   return ACCEPTED_EXT.test(fileName);
 }
 
+/** Odvodí MIME typ z přípony názvu souboru (fallback octet-stream). */
+export function mimeForFileName(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_BY_EXT[ext] || "application/octet-stream";
+}
+
 export function isZipFile(fileName: string): boolean {
   return /\.zip$/i.test(fileName);
 }

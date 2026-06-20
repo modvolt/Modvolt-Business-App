@@ -25,16 +25,27 @@ import {
   isAcceptedDocument,
   isZipFile,
   expandZip,
+  mimeForFileName,
   sha256,
   DuplicateDocumentError,
 } from "../documents/document-service.js";
+import {
+  createImportSession,
+  readImportEntry,
+} from "../documents/import-session.js";
 import { extractText } from "../documents/text-extraction.js";
 import {
   classifyDocument,
   classificationAvailable,
 } from "../ai/classification-service.js";
 import { authorizeDocumentWrite } from "./document-access.js";
-import { parseBatchItems, commitBatch } from "./batch-commit.js";
+import {
+  parseBatchItems,
+  commitBatch,
+  type BatchCommitFile,
+  type BatchCommitResult,
+  type BatchItem,
+} from "./batch-commit.js";
 import { getDownloadUrl, getObjectBuffer } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import { env } from "../env.js";
@@ -282,9 +293,11 @@ async function loadClassificationOptions() {
 }
 
 // (0) Rozbalení ZIP: admin nahraje jeden .zip se složkou dokumentů. Server jej
-// rozbalí, vyfiltruje přijatelné typy a vrátí obsah jednotlivých souborů
-// (base64). Klient z nich vytvoří soubory a pošle je do beze změny stejného
-// analyze/commit flow. Nepodporované/příliš velké položky vrací jako přeskočené.
+// rozbalí, vyfiltruje přijatelné typy a rozbalené položky uloží do krátkodobé
+// serverové relace importu (na disk). Klientovi vrátí jen lehká metadata
+// (token relace, ID položky, název, velikost) — žádné bajty. Analyze/commit pak
+// položky odkážou přes token, takže se obsah neposílá tam a zpět třikrát.
+// Nepodporované/příliš velké položky vrací jako přeskočené.
 documentRouter.post(
   "/batch/zip",
   requireWriteAccess,
@@ -315,6 +328,15 @@ documentRouter.post(
         .json({ error: "ZIP archiv neobsahuje žádné soubory." });
     }
 
+    const { token, entries } = await createImportSession(
+      req.currentUser!.id,
+      expanded.files.map((f) => ({
+        fileName: f.fileName,
+        buffer: f.buffer,
+        mimeType: mimeForFileName(f.fileName),
+      })),
+    );
+
     await audit(req, "zip_expand", "document", undefined, {
       archive: req.file.originalname,
       accepted: expanded.files.length,
@@ -322,10 +344,11 @@ documentRouter.post(
     });
 
     res.json({
-      files: expanded.files.map((f) => ({
-        fileName: f.fileName,
-        sizeBytes: f.buffer.length,
-        contentBase64: f.buffer.toString("base64"),
+      sessionToken: token,
+      files: entries.map((e) => ({
+        entryId: e.entryId,
+        fileName: e.fileName,
+        sizeBytes: e.sizeBytes,
       })),
       skipped: expanded.skipped,
     });
@@ -340,20 +363,59 @@ documentRouter.post(
   requireWriteAccess,
   batchUpload.array("files", MAX_BATCH_FILES),
   async (req, res) => {
-    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-    if (!files.length) return res.status(400).json({ error: "Chybí soubory." });
+    const uploaded = (req.files as Express.Multer.File[] | undefined) ?? [];
+
+    // Vedle nahraných souborů lze odkázat rozbalené položky ZIPu uložené na
+    // serveru (token relace + jejich ID), aby je klient nemusel znovu posílat.
+    const sessionToken =
+      typeof req.body.sessionToken === "string" ? req.body.sessionToken : "";
+    let entryIds: string[] = [];
+    try {
+      const raw = JSON.parse(String(req.body.entryIds ?? "[]"));
+      if (Array.isArray(raw)) entryIds = raw.map(String);
+    } catch {
+      // Neplatné entryIds prostě ignorujeme – berou se jen nahrané soubory.
+    }
+
+    // Sjednocený pracovní seznam: buď máme bajty (buffer), nebo jen název
+    // u položky, kterou se nepodařilo načíst (vypršelá/chybějící relace).
+    type Work = {
+      fileName: string;
+      buffer: Buffer | null;
+      mimeType: string;
+    };
+    const work: Work[] = uploaded.map((f) => ({
+      fileName: f.originalname,
+      buffer: f.buffer,
+      mimeType: f.mimetype,
+    }));
+    if (sessionToken) {
+      for (const entryId of entryIds) {
+        const entry = await readImportEntry(
+          sessionToken,
+          entryId,
+          req.currentUser!.id,
+        );
+        work.push(
+          entry
+            ? { fileName: entry.fileName, buffer: entry.buffer, mimeType: entry.mimeType }
+            : { fileName: "soubor", buffer: null, mimeType: "" },
+        );
+      }
+    }
+
+    if (!work.length) return res.status(400).json({ error: "Chybí soubory." });
 
     const aiEnabled = classificationAvailable();
     const { categories, tags } = await loadClassificationOptions();
 
     const results = await Promise.all(
-      files.map(async (file) => {
-        const fileName = file.originalname;
-        const sizeBytes = file.size;
+      work.map(async (item) => {
+        const fileName = item.fileName;
         const fallbackTitle = fileName.replace(/\.[^.]+$/, "");
         const base = {
           fileName,
-          sizeBytes,
+          sizeBytes: item.buffer ? item.buffer.length : 0,
           documentType: "other" as DocumentType,
           categoryId: null as string | null,
           tagIds: [] as string[],
@@ -364,12 +426,18 @@ documentRouter.post(
           error: null as string | null,
         };
 
+        if (!item.buffer) {
+          return {
+            ...base,
+            error: "Relace importu vypršela, nahrajte archiv znovu.",
+          };
+        }
         if (!isAcceptedDocument(fileName)) {
           return { ...base, error: "Nepodporovaný typ souboru." };
         }
 
         // Detekce duplicit podle SHA-256 vůči existujícím dokumentům.
-        const hash = sha256(file.buffer);
+        const hash = sha256(item.buffer);
         const existing = await findDocumentByHash(hash);
         const duplicate = existing
           ? { id: existing.id, title: existing.title }
@@ -382,8 +450,8 @@ documentRouter.post(
 
         try {
           const extracted = await extractText(
-            file.buffer,
-            file.mimetype,
+            item.buffer,
+            item.mimeType,
             fileName,
           );
           const suggestion = await classifyDocument({
@@ -420,24 +488,84 @@ documentRouter.post(
   },
 );
 
-// (b) Potvrzení dávky: přijme soubory + odpovídající metadata (ve stejném
-// pořadí) a každý soubor vytvoří přes existující pipeline createDocument.
-// Každý soubor se zpracuje nezávisle; výsledek je per-soubor. Vlastní logika
-// (validace, izolace souborů, mapování duplicit) žije v batch-commit.ts.
+// (b) Potvrzení dávky: přijme metadata (ve stejném pořadí jako položky) a pro
+// každou položku vytvoří dokument přes existující pipeline createDocument.
+// Položka pochází buď z nahraného souboru (multipart `files`, zarovnané podle
+// pořadí položek bez entryId), nebo z rozbalené položky ZIPu uložené na serveru
+// (entryId + sessionToken) — v tom případě se bajty čtou z úložiště a klient je
+// znovu neposílá. Každá položka se zpracuje nezávisle; výsledek je per-soubor.
 documentRouter.post(
   "/batch/commit",
   requireWriteAccess,
   batchUpload.array("files", MAX_BATCH_FILES),
   async (req, res) => {
-    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-    if (!files.length) return res.status(400).json({ error: "Chybí soubory." });
+    const uploaded = (req.files as Express.Multer.File[] | undefined) ?? [];
 
-    const parsed = parseBatchItems(String(req.body.items ?? "[]"), files.length);
+    const parsed = parseBatchItems(
+      String(req.body.items ?? "[]"),
+      uploaded.length,
+    );
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    if (!parsed.items.length) {
+      return res.status(400).json({ error: "Chybí soubory." });
+    }
 
-    const results = await commitBatch(
-      files,
-      parsed.items,
+    // Sestav položky k potvrzení v původním pořadí. Serverové položky (entryId)
+    // se načtou z úložiště; nahrané se berou popořadě z multipart `files`.
+    // Položky, které nelze vyřešit (vypršelá relace), se rovnou označí chybou,
+    // aniž by shodily zbytek dávky.
+    const finalResults: BatchCommitResult[] = new Array(parsed.items.length);
+    const resolvedFiles: BatchCommitFile[] = [];
+    const resolvedItems: BatchItem[] = [];
+    const indexMap: number[] = [];
+    let uploadIdx = 0;
+
+    for (let i = 0; i < parsed.items.length; i++) {
+      const item = parsed.items[i];
+      if (item.entryId) {
+        const entry = item.sessionToken
+          ? await readImportEntry(
+              item.sessionToken,
+              item.entryId,
+              req.currentUser!.id,
+            )
+          : null;
+        if (!entry) {
+          finalResults[i] = {
+            fileName: item.fileName ?? "soubor",
+            status: "error",
+            error: "Relace importu vypršela, nahrajte archiv znovu.",
+          };
+          continue;
+        }
+        resolvedFiles.push({
+          buffer: entry.buffer,
+          originalname: entry.fileName,
+          mimetype: entry.mimeType,
+        });
+      } else {
+        const file = uploaded[uploadIdx++];
+        if (!file) {
+          finalResults[i] = {
+            fileName: item.fileName ?? "soubor",
+            status: "error",
+            error: "Soubor chybí v požadavku.",
+          };
+          continue;
+        }
+        resolvedFiles.push({
+          buffer: file.buffer,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+        });
+      }
+      resolvedItems.push(item);
+      indexMap.push(i);
+    }
+
+    const committed = await commitBatch(
+      resolvedFiles,
+      resolvedItems,
       req.currentUser!.id,
       createDocument,
       (doc) =>
@@ -447,7 +575,11 @@ documentRouter.post(
         }),
     );
 
-    res.status(201).json({ results });
+    for (let k = 0; k < indexMap.length; k++) {
+      finalResults[indexMap[k]] = committed[k];
+    }
+
+    res.status(201).json({ results: finalResults });
   },
 );
 

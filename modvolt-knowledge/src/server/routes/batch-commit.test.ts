@@ -57,6 +57,35 @@ test("parseBatchItems rejects items that fail the schema", () => {
   assert.equal(result.ok, false);
 });
 
+test("parseBatchItems counts only items without entryId against uploaded files", () => {
+  // Two session entries (entryId) + one uploaded file → uploadedFileCount=1.
+  const items = JSON.stringify([
+    { title: "z1", entryId: "e1", sessionToken: "t" },
+    { title: "z2", entryId: "e2", sessionToken: "t" },
+    { title: "upload" },
+  ]);
+  const result = parseBatchItems(items, 1);
+  assert.equal(result.ok, true);
+  assert.equal(result.ok === true && result.items.length, 3);
+});
+
+test("parseBatchItems accepts a pure session batch with zero uploaded files", () => {
+  const items = JSON.stringify([
+    { title: "z1", entryId: "e1", sessionToken: "t" },
+    { title: "z2", entryId: "e2", sessionToken: "t" },
+  ]);
+  const result = parseBatchItems(items, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.ok === true && result.items.length, 2);
+});
+
+test("parseBatchItems rejects when uploaded files exceed non-session items", () => {
+  // One session entry, no plain items, but a file was uploaded → mismatch.
+  const items = JSON.stringify([{ title: "z1", entryId: "e1", sessionToken: "t" }]);
+  const result = parseBatchItems(items, 1);
+  assert.equal(result.ok, false);
+});
+
 // --- commitBatch: per-file isolation + duplicate mapping ------------------
 
 test("commitBatch creates each file independently", async () => {

@@ -408,7 +408,11 @@ type RowStatus =
   | "error";
 
 interface BatchRow {
-  file: File;
+  // Lokálně vybraný soubor; null u položek pocházejících z rozbaleného ZIPu,
+  // které drží server (odkazují se přes sessionToken + entryId).
+  file: File | null;
+  sessionToken: string | null;
+  entryId: string | null;
   fileName: string;
   status: RowStatus;
   message: string;
@@ -423,24 +427,22 @@ interface BatchRow {
   skip: boolean;
 }
 
-// Převede base64 obsah (z rozbaleného ZIPu na serveru) zpět na File, aby šel
-// poslat do nezměněného analyze/commit flow stejně jako lokálně vybraný soubor.
-function base64ToFile(b64: string, name: string): File {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new File([bytes], name);
-}
-
-function newRow(file: File): BatchRow {
+function makeRow(opts: {
+  fileName: string;
+  file?: File | null;
+  sessionToken?: string | null;
+  entryId?: string | null;
+}): BatchRow {
   return {
-    file,
-    fileName: file.name,
+    file: opts.file ?? null,
+    sessionToken: opts.sessionToken ?? null,
+    entryId: opts.entryId ?? null,
+    fileName: opts.fileName,
     status: "pending",
     message: "",
     aiClassified: false,
     duplicate: null,
-    title: file.name.replace(/\.[^.]+$/, ""),
+    title: opts.fileName.replace(/\.[^.]+$/, ""),
     description: "",
     documentType: "other",
     categoryId: "",
@@ -482,7 +484,11 @@ function BatchImport({
     if (!list.length) return;
     const zips = list.filter((f) => /\.zip$/i.test(f.name));
     const plain = list.filter((f) => !/\.zip$/i.test(f.name));
-    if (plain.length) setRows((prev) => [...prev, ...plain.map(newRow)]);
+    if (plain.length)
+      setRows((prev) => [
+        ...prev,
+        ...plain.map((f) => makeRow({ fileName: f.name, file: f })),
+      ]);
     if (!zips.length) return;
 
     setBusy(true);
@@ -492,8 +498,13 @@ function BatchImport({
         const form = new FormData();
         form.append("file", zip);
         const res = await api.batchExpandZip(form);
+        // Server drží rozbalené bajty; klient si pamatuje jen lehký odkaz.
         const expanded = res.files.map((f) =>
-          newRow(base64ToFile(f.contentBase64, f.fileName)),
+          makeRow({
+            fileName: f.fileName,
+            sessionToken: res.sessionToken,
+            entryId: f.entryId,
+          }),
         );
         if (expanded.length) setRows((prev) => [...prev, ...expanded]);
         if (res.skipped.length) {
@@ -529,7 +540,13 @@ function BatchImport({
       updateRow(i, { status: "analyzing", message: "Analyzuji…" });
       try {
         const form = new FormData();
-        form.append("files", rows[i].file);
+        const row = rows[i];
+        if (row.file) {
+          form.append("files", row.file);
+        } else if (row.sessionToken && row.entryId) {
+          form.append("sessionToken", row.sessionToken);
+          form.append("entryIds", JSON.stringify([row.entryId]));
+        }
         const res = await api.batchAnalyze(form);
         const r = res.results[0];
         if (!r) {
@@ -595,7 +612,7 @@ function BatchImport({
       const form = new FormData();
       const items = committable.map((i) => {
         const r = rows[i];
-        return {
+        const base = {
           title: r.title,
           description: r.description,
           categoryId: r.categoryId,
@@ -604,8 +621,21 @@ function BatchImport({
           tagIds: r.tagIds,
           skip: r.skip,
         };
+        // Serverové položky (ZIP) odkážeme přes token; bajty znovu neposíláme.
+        if (r.entryId && r.sessionToken) {
+          return {
+            ...base,
+            entryId: r.entryId,
+            sessionToken: r.sessionToken,
+            fileName: r.fileName,
+          };
+        }
+        return base;
       });
-      committable.forEach((i) => form.append("files", rows[i].file));
+      committable.forEach((i) => {
+        const r = rows[i];
+        if (r.file) form.append("files", r.file);
+      });
       form.append("items", JSON.stringify(items));
       const res = await api.batchCommit(form);
       applyCommitResults(committable, res.results);

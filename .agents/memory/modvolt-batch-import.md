@@ -10,8 +10,8 @@ returns per-file AI suggestions + SHA-256 duplicate detection; `/documents/batch
 re-receives the files plus a parallel `items` JSON array (matched by index) and
 creates each document via the existing `createDocument` pipeline.
 **Why:** the app must run with zero Replit/runtime dependency and be portable
-(Docker/Coolify); a server-side temp store of large buffers would add state,
-memory pressure, and a cleanup burden. Re-upload keeps both endpoints stateless.
+(Docker/Coolify). Re-upload keeps both endpoints stateless for locally-picked
+files.
 **How to apply:** keep files↔items strictly index-aligned (same order). Each
 file is handled independently in a loop so one failure never aborts the batch;
 DuplicateDocumentError maps to a per-file "duplicate" result, not a 409 for the

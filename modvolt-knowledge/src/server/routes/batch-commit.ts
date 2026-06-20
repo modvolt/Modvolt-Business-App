@@ -6,6 +6,10 @@ import {
 import type { DocumentType, DocumentVisibility } from "../../shared/types.js";
 
 // Schéma jedné položky potvrzené dávky (metadata zvolená/upravená adminem).
+// Položka může pocházet ze dvou zdrojů:
+//  - nahraný soubor (multipart `files`) – běžný výběr souborů,
+//  - rozbalená položka ZIPu uložená na serveru (sessionToken + entryId) –
+//    klient v takovém případě bajty znovu neposílá.
 export const batchItemSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
@@ -14,6 +18,11 @@ export const batchItemSchema = z.object({
   visibility: z.enum(["all_users", "admin_only"]).optional(),
   tagIds: z.array(z.string()).optional(),
   skip: z.boolean().optional(),
+  // Odkaz na serverovou položku importu (místo nahraného souboru).
+  sessionToken: z.string().optional(),
+  entryId: z.string().optional(),
+  // Název souboru pro hlášení výsledku u serverových položek.
+  fileName: z.string().optional(),
 });
 
 export type BatchItem = z.infer<typeof batchItemSchema>;
@@ -37,12 +46,14 @@ export interface BatchCommitResult {
 
 /**
  * Naparsuje a zvaliduje metadata dávky (JSON řetězec z multipart pole).
- * Vynucuje, že počet položek metadat přesně odpovídá počtu souborů — index
- * souborů a položek musí být zarovnaný, jinak by se metadata přiřadila špatně.
+ * Položky bez `entryId` pocházejí z nahraných souborů a musí přesně odpovídat
+ * jejich počtu — index nahraných souborů a těchto položek se zarovnává podle
+ * pořadí, jinak by se metadata přiřadila špatně. Položky s `entryId` se řeší
+ * ze serverového úložiště, takže do počtu nahraných souborů nepatří.
  */
 export function parseBatchItems(
   itemsJson: string,
-  fileCount: number,
+  uploadedFileCount: number,
 ): { ok: true; items: BatchItem[] } | { ok: false; error: string } {
   let raw: unknown;
   try {
@@ -51,7 +62,11 @@ export function parseBatchItems(
     return { ok: false, error: "Neplatná metadata dávky." };
   }
   const parsed = z.array(batchItemSchema).safeParse(raw);
-  if (!parsed.success || parsed.data.length !== fileCount) {
+  if (!parsed.success) {
+    return { ok: false, error: "Počet metadat neodpovídá počtu souborů." };
+  }
+  const uploadItems = parsed.data.filter((i) => !i.entryId).length;
+  if (uploadItems !== uploadedFileCount) {
     return { ok: false, error: "Počet metadat neodpovídá počtu souborů." };
   }
   return { ok: true, items: parsed.data };

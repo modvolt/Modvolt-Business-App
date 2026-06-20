@@ -129,7 +129,8 @@ export interface ReclassifyCommitResult {
 }
 
 export interface ZipExpandResult {
-  files: { fileName: string; sizeBytes: number; contentBase64: string }[];
+  sessionToken: string;
+  files: { entryId: string; fileName: string; sizeBytes: number }[];
   skipped: { fileName: string; reason: string }[];
 }
 
