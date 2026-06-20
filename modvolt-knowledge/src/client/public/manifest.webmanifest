@@ -1,0 +1,10 @@
+{
+  "name": "Modvolt Knowledge",
+  "short_name": "Knowledge",
+  "description": "Interní znalostní databáze Modvolt s.r.o.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0b3d91",
+  "icons": []
+}
