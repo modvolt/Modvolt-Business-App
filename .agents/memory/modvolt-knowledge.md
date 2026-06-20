@@ -13,6 +13,16 @@ AI answers must only count a citation toward "sufficiently sourced" if it maps t
 **Why:** Models fabricate plausible citations; an unvalidated citation array lets ungrounded output pass the gate.
 **How to apply:** Any change to the chat answer schema/validation must keep filtering citations against the retrieved set BEFORE computing `hasAnyCitation`.
 
+## Frontend filter values must match canonical enums
+Search/filter UI controls (e.g. document-type chips) must send the exact `DocumentType` enum values from `src/shared/types.ts` (`standard`, `norm`, `internal_procedure`, …) — not invented labels like `internal`/`csn_standard`. Mismatched keys silently yield empty filter results because the SQL `ANY` filter never matches.
+**Why:** A review caught the search page sending non-canonical type keys; typecheck does not catch this since the filter param is a plain string.
+**How to apply:** When adding any filter chip/select, source its option keys from the shared enum, and keep the upload form and search filters using the same canonical set.
+
+## Admin-only UI surface
+Categories, tags, indexing, audit, settings, and users pages are admin-gated in BOTH `Layout` nav (`show: isAdmin`) and `App` rendering (`page === ... && isAdmin`). Backend already enforces auth server-side, but the nav/route gating must stay consistent with it.
+**Why:** Plan required admin gating; leaving categories/tags visible to all was flagged as a requirement/consistency miss.
+**How to apply:** Gate a page in both Layout visibility and App routing together; never gate only one.
+
 ## Dedup + versioning integrity
 `documents.sha256_hash` has a DB-level UNIQUE index (not just a pre-check). Insert/replace paths must catch PG unique violation (code `23505`) and map to a 409 duplicate, in addition to the `findDocumentByHash` pre-check. `replaceDocument` must wrap version-archive insert + chunk `isCurrent=false` demotion + documents update in ONE `db.transaction`. S3 upload happens before the transaction (orphan on failure is harmless since path is hash-derived).
 **Why:** Pre-check alone races under concurrent uploads; multi-statement versioning without a transaction can leave inconsistent state.

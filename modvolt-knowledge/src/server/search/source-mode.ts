@@ -76,9 +76,11 @@ export function sourceModeAllowsWeb(mode: SourceMode): boolean {
   return mode === "internal_then_web" || mode === "web_allowed";
 }
 
-/** Smí daný režim používat interní dokumenty? */
-export function sourceModeAllowsInternal(mode: SourceMode): boolean {
-  return mode !== "web_allowed" ? true : true; // web_allowed stále preferuje interní
+/** Smí daný režim používat interní dokumenty? Ano pro všechny aktuální režimy. */
+export function sourceModeAllowsInternal(_mode: SourceMode): boolean {
+  // Všechny současné režimy (internal_only, internal_then_web, web_allowed,
+  // csn_only) preferují nebo dovolují interní dokumenty.
+  return true;
 }
 
 /** Filtr typů dokumentů pro csn_only (jen normy/standardy). */

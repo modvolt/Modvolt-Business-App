@@ -34,9 +34,15 @@ export interface DocumentRow {
   documentType: string;
   status: string;
   visibility: string;
+  sourceName: string | null;
+  sourceUrl: string | null;
+  version: string | null;
+  validFrom: string | null;
+  validTo: string | null;
   originalFileName: string;
   sizeBytes: number;
   createdAt: string;
+  tagIds?: string[];
 }
 
 export interface CategoryRow {
@@ -45,6 +51,37 @@ export interface CategoryRow {
   slug: string;
   description: string | null;
   sortOrder: number;
+}
+
+export interface TagRow {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  documentCount: number;
+}
+
+export interface IndexingJobRow {
+  id: string;
+  documentId: string;
+  documentTitle: string | null;
+  status: string;
+  jobType: string;
+  attempts: number;
+  lastError: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
+export interface SearchFilters {
+  sourceMode?: SourceMode;
+  categoryId?: string;
+  status?: string;
+  documentTypes?: string[];
+  tagIds?: string[];
+  version?: string;
+  validOn?: string;
 }
 
 export interface SearchHit {
@@ -73,14 +110,42 @@ export const api = {
 
   // Categories
   categories: () => req<{ categories: CategoryRow[] }>("/categories"),
+  createCategory: (data: { name: string; description?: string; sortOrder?: number }) =>
+    req<{ category: CategoryRow }>("/categories", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateCategory: (id: string, data: Partial<{ name: string; description: string; sortOrder: number }>) =>
+    req<{ category: CategoryRow }>(`/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteCategory: (id: string) =>
+    req<{ ok: boolean }>(`/categories/${id}`, { method: "DELETE" }),
+
+  // Tags
+  tags: () => req<{ tags: TagRow[] }>("/tags"),
+  createTag: (name: string) =>
+    req<{ tag: TagRow }>("/tags", { method: "POST", body: JSON.stringify({ name }) }),
+  updateTag: (id: string, name: string) =>
+    req<{ tag: TagRow }>(`/tags/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteTag: (id: string) =>
+    req<{ ok: boolean }>(`/tags/${id}`, { method: "DELETE" }),
 
   // Documents
   documents: (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString();
     return req<{ documents: DocumentRow[] }>(`/documents${qs ? `?${qs}` : ""}`);
   },
+  document: (id: string) =>
+    req<{ document: DocumentRow; tagIds: string[] }>(`/documents/${id}`),
   uploadDocument: (form: FormData) =>
     req<{ document: DocumentRow }>("/documents", { method: "POST", body: form }),
+  updateDocument: (id: string, data: Record<string, unknown>) =>
+    req<{ document: DocumentRow; tagIds: string[] }>(`/documents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
   reindexDocument: (id: string) =>
     req<{ ok: boolean }>(`/documents/${id}/reindex`, { method: "POST" }),
   deleteDocument: (id: string) =>
@@ -89,10 +154,10 @@ export const api = {
     req<{ url: string }>(`/documents/${id}/download`),
 
   // Search & AI
-  search: (query: string, sourceMode: SourceMode) =>
+  search: (query: string, filters: SearchFilters = {}) =>
     req<{ hits: SearchHit[] }>("/search", {
       method: "POST",
-      body: JSON.stringify({ query, sourceMode }),
+      body: JSON.stringify({ query, ...filters }),
     }),
   ask: (form: FormData) =>
     req<{
@@ -119,4 +184,10 @@ export const api = {
     req<{ ok: boolean }>("/admin/settings", { method: "PUT", body: JSON.stringify(settings) }),
   audit: () => req<{ logs: any[] }>("/admin/audit"),
   stats: () => req<any>("/admin/stats"),
+  indexingJobs: () => req<{ jobs: IndexingJobRow[] }>("/admin/indexing-jobs"),
+  retryIndexing: (documentId: string) =>
+    req<{ ok: boolean }>("/admin/indexing-jobs/retry", {
+      method: "POST",
+      body: JSON.stringify({ documentId }),
+    }),
 };

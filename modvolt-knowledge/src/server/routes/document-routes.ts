@@ -1,9 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { and, desc, eq, ilike, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { documents, documentVersions } from "../db/schema.js";
+import { documents, documentVersions, documentTagLinks } from "../db/schema.js";
 import {
   requireAuth,
   requireRole,
@@ -12,6 +12,8 @@ import {
 import {
   createDocument,
   deleteDocument,
+  setDocumentTags,
+  getDocumentTagIds,
   DuplicateDocumentError,
 } from "../documents/document-service.js";
 import { getDownloadUrl } from "../storage/s3.js";
@@ -75,7 +77,24 @@ documentRouter.get("/", async (req, res) => {
     .orderBy(desc(documents.createdAt))
     .limit(200);
 
-  res.json({ documents: rows });
+  // Doplnění štítků (ID) ke každému dokumentu jedním dotazem.
+  const tagsByDoc = new Map<string, string[]>();
+  if (rows.length) {
+    const ids = rows.map((r) => r.id);
+    const links = await db
+      .select({ documentId: documentTagLinks.documentId, tagId: documentTagLinks.tagId })
+      .from(documentTagLinks)
+      .where(inArray(documentTagLinks.documentId, ids));
+    for (const l of links) {
+      const arr = tagsByDoc.get(l.documentId) ?? [];
+      arr.push(l.tagId);
+      tagsByDoc.set(l.documentId, arr);
+    }
+  }
+
+  res.json({
+    documents: rows.map((r) => ({ ...r, tagIds: tagsByDoc.get(r.id) ?? [] })),
+  });
 });
 
 documentRouter.get("/:id", async (req, res) => {
@@ -89,7 +108,7 @@ documentRouter.get("/:id", async (req, res) => {
   if (doc.visibility === "admin_only" && req.currentUser!.role !== "admin") {
     return res.status(403).json({ error: "Nedostatečná oprávnění." });
   }
-  res.json({ document: doc });
+  res.json({ document: doc, tagIds: await getDocumentTagIds(doc.id) });
 });
 
 // Stažení přes krátkodobé předpodepsané URL (privátní bucket).
@@ -113,6 +132,31 @@ documentRouter.get("/:id/download", async (req, res) => {
   }
 });
 
+// V multipart/form-data přicházejí pole jako řetězce; tagIds může být JSON pole
+// nebo opakované pole. Tento coerce je sjednotí na string[].
+const tagIdsSchema = z
+  .union([z.array(z.string()), z.string()])
+  .optional()
+  .transform((v) => {
+    if (v === undefined) return undefined;
+    if (Array.isArray(v)) return v.filter(Boolean);
+    const s = v.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      // padá zpět na CSV
+    }
+    return s.split(",").map((x) => x.trim()).filter(Boolean);
+  });
+
+const dateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Očekáván formát YYYY-MM-DD")
+  .optional()
+  .or(z.literal(""));
+
 // Pole metadat společná pro upload i úpravu (odpovídají sloupcům documents).
 const metadataSchema = z.object({
   title: z.string().optional(),
@@ -123,6 +167,9 @@ const metadataSchema = z.object({
   sourceName: z.string().optional(),
   sourceUrl: z.string().optional(),
   version: z.string().optional(),
+  validFrom: dateSchema,
+  validTo: dateSchema,
+  tagIds: tagIdsSchema,
 });
 
 // Upload navíc umožní vytvořit novou verzi existujícího dokumentu.
@@ -164,6 +211,9 @@ documentRouter.post(
         sourceName: parsed.data.sourceName,
         sourceUrl: parsed.data.sourceUrl,
         version: parsed.data.version,
+        validFrom: parsed.data.validFrom ? new Date(parsed.data.validFrom) : null,
+        validTo: parsed.data.validTo ? new Date(parsed.data.validTo) : null,
+        tagIds: parsed.data.tagIds,
         replaceDocumentId: parsed.data.replaceDocumentId,
         changeNote: parsed.data.changeNote,
         uploadedByUserId: req.currentUser!.id,
@@ -211,9 +261,21 @@ documentRouter.patch("/:id", requireWriteAccess, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Neplatná metadata." });
   }
+  const { tagIds, validFrom, validTo, ...rest } = parsed.data;
   const updates: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(parsed.data)) {
-    if (v !== undefined) updates[k === "categoryId" && v === "" ? "categoryId" : k] = v === "" && k === "categoryId" ? null : v;
+  for (const [k, v] of Object.entries(rest)) {
+    if (v === undefined) continue;
+    if (k === "categoryId") {
+      updates.categoryId = v === "" ? null : v;
+    } else {
+      updates[k] = v;
+    }
+  }
+  if (validFrom !== undefined) {
+    updates.validFrom = validFrom ? new Date(validFrom) : null;
+  }
+  if (validTo !== undefined) {
+    updates.validTo = validTo ? new Date(validTo) : null;
   }
   const [doc] = await db
     .update(documents)
@@ -221,8 +283,11 @@ documentRouter.patch("/:id", requireWriteAccess, async (req, res) => {
     .where(eq(documents.id, req.params.id))
     .returning();
   if (!doc) return res.status(404).json({ error: "Dokument nenalezen." });
+  if (tagIds !== undefined) {
+    await setDocumentTags(doc.id, tagIds);
+  }
   await audit(req, "update", "document", doc.id);
-  res.json({ document: doc });
+  res.json({ document: doc, tagIds: await getDocumentTagIds(doc.id) });
 });
 
 // Znovu zaindexovat.

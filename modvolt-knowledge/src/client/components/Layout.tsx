@@ -1,7 +1,17 @@
 import React from "react";
 import { useAuth } from "../lib/auth.js";
 
-export type Page = "search" | "chat" | "documents" | "admin";
+export type Page =
+  | "dashboard"
+  | "chat"
+  | "search"
+  | "documents"
+  | "categories"
+  | "tags"
+  | "indexing"
+  | "audit"
+  | "settings"
+  | "users";
 
 export function Layout({
   page,
@@ -16,10 +26,16 @@ export function Layout({
   const isAdmin = user?.role === "admin";
 
   const items: { key: Page; label: string; show: boolean }[] = [
+    { key: "dashboard", label: "Přehled", show: true },
+    { key: "chat", label: "AI dotaz", show: true },
     { key: "search", label: "Vyhledávání", show: true },
-    { key: "chat", label: "AI asistent", show: true },
     { key: "documents", label: "Dokumenty", show: true },
-    { key: "admin", label: "Administrace", show: isAdmin },
+    { key: "categories", label: "Kategorie", show: isAdmin },
+    { key: "tags", label: "Štítky", show: isAdmin },
+    { key: "indexing", label: "Import / Indexace", show: isAdmin },
+    { key: "audit", label: "Audit log", show: isAdmin },
+    { key: "settings", label: "Nastavení", show: isAdmin },
+    { key: "users", label: "Uživatelé", show: isAdmin },
   ];
 
   return (

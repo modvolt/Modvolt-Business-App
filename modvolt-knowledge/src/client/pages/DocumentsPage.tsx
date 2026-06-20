@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, type DocumentRow, type CategoryRow } from "../lib/api.js";
+import { api, type DocumentRow, type CategoryRow, type TagRow } from "../lib/api.js";
 import { useAuth } from "../lib/auth.js";
 
 const DOC_TYPES = [
@@ -23,19 +23,21 @@ export function DocumentsPage() {
 
   const [docs, setDocs] = useState<DocumentRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [tags, setTags] = useState<TagRow[]>([]);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
   const load = async () => {
     try {
-      const [d, c] = await Promise.all([
+      const [d, c, t] = await Promise.all([
         api.documents(q ? { q } : {}),
         api.categories(),
+        api.tags(),
       ]);
       setDocs(d.documents);
       setCategories(c.categories);
+      setTags(t.tags);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -82,6 +84,7 @@ export function DocumentsPage() {
       {showUpload && canWrite && (
         <UploadForm
           categories={categories}
+          tags={tags}
           onUploaded={() => {
             setShowUpload(false);
             load();
@@ -158,9 +161,11 @@ export function DocumentsPage() {
 
 function UploadForm({
   categories,
+  tags,
   onUploaded,
 }: {
   categories: CategoryRow[];
+  tags: TagRow[];
   onUploaded: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -168,8 +173,17 @@ function UploadForm({
   const [categoryId, setCategoryId] = useState("");
   const [documentType, setDocumentType] = useState("other");
   const [visibility, setVisibility] = useState("all_users");
+  const [version, setVersion] = useState("");
+  const [sourceName, setSourceName] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [validTo, setValidTo] = useState("");
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const toggleTag = (id: string) =>
+    setTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,6 +197,12 @@ function UploadForm({
       if (categoryId) form.append("categoryId", categoryId);
       form.append("documentType", documentType);
       form.append("visibility", visibility);
+      if (version.trim()) form.append("version", version.trim());
+      if (sourceName.trim()) form.append("sourceName", sourceName.trim());
+      if (sourceUrl.trim()) form.append("sourceUrl", sourceUrl.trim());
+      if (validFrom) form.append("validFrom", validFrom);
+      if (validTo) form.append("validTo", validTo);
+      if (tagIds.length) form.append("tagIds", JSON.stringify(tagIds));
       await api.uploadDocument(form);
       onUploaded();
     } catch (err) {
@@ -238,6 +258,50 @@ function UploadForm({
           </select>
         </div>
       </div>
+
+      <div className="row">
+        <div className="field">
+          <label>Verze (volitelné)</label>
+          <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="např. 2024" />
+        </div>
+        <div className="field">
+          <label>Platné od (volitelné)</label>
+          <input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Platné do (volitelné)</label>
+          <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="field">
+          <label>Zdroj / vydavatel (volitelné)</label>
+          <input value={sourceName} onChange={(e) => setSourceName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Odkaz na zdroj (volitelné)</label>
+          <input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://…" />
+        </div>
+      </div>
+
+      {tags.length > 0 && (
+        <div className="field">
+          <label>Štítky (volitelné)</label>
+          <div className="chip-group">
+            {tags.map((t) => (
+              <span
+                key={t.id}
+                className={`chip ${tagIds.includes(t.id) ? "active" : ""}`}
+                onClick={() => toggleTag(t.id)}
+              >
+                {t.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && <div className="error">{error}</div>}
       <button type="submit" disabled={busy}>
         {busy ? "Nahrávám…" : "Nahrát"}

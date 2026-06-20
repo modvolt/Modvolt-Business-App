@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { documents, documentVersions, documentChunks } from "../db/schema.js";
+import {
+  documents,
+  documentVersions,
+  documentChunks,
+  documentTagLinks,
+} from "../db/schema.js";
 import { putObject, deleteObject } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
 import type { DocumentType, DocumentVisibility } from "../../shared/types.js";
@@ -51,6 +56,10 @@ export interface CreateDocumentInput {
   sourceName?: string;
   sourceUrl?: string;
   version?: string;
+  validFrom?: Date | null;
+  validTo?: Date | null;
+  /** Štítky (ID) k navázání na dokument. */
+  tagIds?: string[];
   uploadedByUserId?: string;
   /** Pokud je nastaveno, nahraje se nová verze existujícího dokumentu. */
   replaceDocumentId?: string;
@@ -103,6 +112,8 @@ export async function createDocument(input: CreateDocumentInput) {
         sourceName: input.sourceName ?? null,
         sourceUrl: input.sourceUrl ?? null,
         version: input.version ?? null,
+        validFrom: input.validFrom ?? null,
+        validTo: input.validTo ?? null,
         status: "uploaded",
         originalFileName: input.originalFileName,
         mimeType,
@@ -121,8 +132,40 @@ export async function createDocument(input: CreateDocumentInput) {
     throw err;
   }
 
+  if (input.tagIds) {
+    await setDocumentTags(doc.id, input.tagIds);
+  }
+
   await enqueueDocument(doc.id, "index");
   return doc;
+}
+
+/** Přepíše navázané štítky dokumentu na zadaný seznam ID. */
+export async function setDocumentTags(
+  documentId: string,
+  tagIds: string[],
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(documentTagLinks)
+      .where(eq(documentTagLinks.documentId, documentId));
+    const unique = Array.from(new Set(tagIds.filter(Boolean)));
+    if (unique.length) {
+      await tx
+        .insert(documentTagLinks)
+        .values(unique.map((tagId) => ({ documentId, tagId })))
+        .onConflictDoNothing();
+    }
+  });
+}
+
+/** Vrátí ID štítků navázaných na dokument. */
+export async function getDocumentTagIds(documentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ tagId: documentTagLinks.tagId })
+    .from(documentTagLinks)
+    .where(eq(documentTagLinks.documentId, documentId));
+  return rows.map((r) => r.tagId);
 }
 
 /** Rozpozná porušení unikátního omezení (PostgreSQL kód 23505). */

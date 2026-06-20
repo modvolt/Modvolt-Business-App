@@ -39,6 +39,12 @@ const searchSchema = z.object({
   sourceMode: z
     .enum(["internal_only", "internal_then_web", "web_allowed", "csn_only"])
     .optional(),
+  categoryId: z.string().uuid().optional(),
+  status: z.enum(["uploaded", "processing", "indexed", "failed", "needs_review", "archived"]).optional(),
+  documentTypes: z.array(z.string().min(1)).optional(),
+  tagIds: z.array(z.string().uuid()).optional(),
+  version: z.string().min(1).optional(),
+  validOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Očekáván formát YYYY-MM-DD").optional(),
 });
 
 searchRouter.post("/search", async (req, res) => {
@@ -49,6 +55,12 @@ searchRouter.post("/search", async (req, res) => {
     limit: 20,
     sourceMode: (parsed.data.sourceMode as SourceMode) || "internal_only",
     includeAdminOnly: isAdmin,
+    categoryId: parsed.data.categoryId,
+    status: parsed.data.status,
+    documentTypes: parsed.data.documentTypes,
+    tagIds: parsed.data.tagIds,
+    version: parsed.data.version,
+    validOn: parsed.data.validOn,
   });
   await db.insert(searchQueries).values({
     userId: req.currentUser!.id,

@@ -7,9 +7,12 @@ import {
   appSettings,
   auditLogs,
   documents,
+  documentCategories,
   searchQueries,
+  indexingJobs,
 } from "../db/schema.js";
 import { requireRole } from "../middleware/auth.js";
+import { enqueueDocument } from "../indexing/worker.js";
 import { hashPassword } from "../auth/password.js";
 import { listPromptVersions } from "../ai/prompts/index.js";
 import { audit } from "../lib/audit.js";
@@ -135,19 +138,121 @@ adminRouter.get("/audit", async (req, res) => {
   res.json({ logs: rows });
 });
 
-// --- Statistiky ---
+// --- Statistiky (dashboard) ---
 adminRouter.get("/stats", async (_req, res) => {
   const [docCount] = await db.select({ c: sql<number>`count(*)::int` }).from(documents);
   const [userCount] = await db.select({ c: sql<number>`count(*)::int` }).from(users);
   const [queryCount] = await db.select({ c: sql<number>`count(*)::int` }).from(searchQueries);
+  const [categoryCount] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(documentCategories);
+
   const byStatus = await db
     .select({ status: documents.status, c: sql<number>`count(*)::int` })
     .from(documents)
     .groupBy(documents.status);
+
+  const byType = await db
+    .select({ documentType: documents.documentType, c: sql<number>`count(*)::int` })
+    .from(documents)
+    .groupBy(documents.documentType);
+
+  // Dotazy za posledních 30 dní + rozpad podle režimu.
+  const [queries30d] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .where(sql`${searchQueries.createdAt} >= now() - interval '30 days'`);
+  const [imageQueries] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .where(eq(searchQueries.mode, "image_chat"));
+  const [webQueries] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .where(eq(searchQueries.usedWebSearch, true));
+  const byMode = await db
+    .select({ mode: searchQueries.mode, c: sql<number>`count(*)::int` })
+    .from(searchQueries)
+    .groupBy(searchQueries.mode);
+
+  // Indexovací fronta podle stavu.
+  const indexingByStatus = await db
+    .select({ status: indexingJobs.status, c: sql<number>`count(*)::int` })
+    .from(indexingJobs)
+    .groupBy(indexingJobs.status);
+
+  // Naposledy nahrané dokumenty.
+  const recentDocuments = await db
+    .select({
+      id: documents.id,
+      title: documents.title,
+      status: documents.status,
+      documentType: documents.documentType,
+      createdAt: documents.createdAt,
+    })
+    .from(documents)
+    .orderBy(desc(documents.createdAt))
+    .limit(8);
+
+  // Nejčastější kategorie podle počtu dokumentů.
+  const topCategories = await db
+    .select({
+      id: documentCategories.id,
+      name: documentCategories.name,
+      c: sql<number>`count(${documents.id})::int`,
+    })
+    .from(documentCategories)
+    .leftJoin(documents, eq(documents.categoryId, documentCategories.id))
+    .groupBy(documentCategories.id, documentCategories.name)
+    .orderBy(desc(sql`count(${documents.id})`))
+    .limit(8);
+
   res.json({
     documents: docCount.c,
     users: userCount.c,
     queries: queryCount.c,
+    categories: categoryCount.c,
+    queriesLast30d: queries30d.c,
+    imageQueries: imageQueries.c,
+    webQueries: webQueries.c,
     documentsByStatus: byStatus,
+    documentsByType: byType,
+    queriesByMode: byMode,
+    indexingByStatus,
+    recentDocuments,
+    topCategories,
   });
+});
+
+// --- Indexovací fronta (Import / Indexace) ---
+adminRouter.get("/indexing-jobs", async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const rows = await db
+    .select({
+      id: indexingJobs.id,
+      documentId: indexingJobs.documentId,
+      status: indexingJobs.status,
+      jobType: indexingJobs.jobType,
+      attempts: indexingJobs.attempts,
+      lastError: indexingJobs.lastError,
+      startedAt: indexingJobs.startedAt,
+      finishedAt: indexingJobs.finishedAt,
+      createdAt: indexingJobs.createdAt,
+      documentTitle: documents.title,
+    })
+    .from(indexingJobs)
+    .leftJoin(documents, eq(documents.id, indexingJobs.documentId))
+    .orderBy(desc(indexingJobs.createdAt))
+    .limit(limit);
+  res.json({ jobs: rows });
+});
+
+// Znovu zařadit dokument do fronty (reindex).
+adminRouter.post("/indexing-jobs/retry", async (req, res) => {
+  const schema = z.object({ documentId: z.string().uuid() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Chybí documentId." });
+  await enqueueDocument(parsed.data.documentId, "reindex");
+  await audit(req, "reindex", "document", parsed.data.documentId);
+  res.json({ ok: true });
 });
