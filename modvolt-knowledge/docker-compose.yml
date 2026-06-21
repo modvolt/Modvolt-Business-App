@@ -10,8 +10,9 @@
 # heslo je proto bezpečné — zvenčí se k DB nikdo nedostane.
 #
 # Tajné hodnoty aplikace (SESSION_SECRET, S3_*, OPENAI_*, ADMIN_*) nastav
-# v Coolify UI jako environment variables — Coolify je do služby "app"
-# vloží automaticky (jednoduché předání proměnné funguje).
+# v Coolify UI jako environment variables. POZOR: musí být níže VÝSLOVNĚ
+# předané jako KLIC: ${KLIC} (jednoduché předání funguje, vnořená interpolace
+# ne). Když přidáš novou env proměnnou do aplikace, doplň ji i sem.
 #
 # Lokální vývoj:
 #   docker compose up -d
@@ -21,8 +22,56 @@ services:
     build: .
     restart: unless-stopped
     environment:
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       # Interní lokální databáze (pgvector) ve stejném stacku.
       DATABASE_URL: "postgresql://postgres:modvolt_local_db@db:5432/modvolt"
+      # --- Proměnné nastavené v Coolify UI (předané do kontejneru) ---
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      # S3 / Hetzner Object Storage
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      # OpenAI – společný klíč + samostatné klíče k jednotlivým modelům
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_API_KEY: ${OPENAI_EMBEDDING_API_KEY:-}
+      OPENAI_CHAT_API_KEY: ${OPENAI_CHAT_API_KEY:-}
+      OPENAI_VISION_API_KEY: ${OPENAI_VISION_API_KEY:-}
+      # OpenAI – modely a chování
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-}
+      OPENAI_ENABLED: ${OPENAI_ENABLED:-}
+      OPENAI_IMAGE_ANALYSIS_ENABLED: ${OPENAI_IMAGE_ANALYSIS_ENABLED:-}
+      OPENAI_MAX_CONTEXT_CHUNKS: ${OPENAI_MAX_CONTEXT_CHUNKS:-}
+      OPENAI_MAX_UPLOAD_MB: ${OPENAI_MAX_UPLOAD_MB:-}
+      OPENAI_REQUEST_TIMEOUT_MS: ${OPENAI_REQUEST_TIMEOUT_MS:-}
+      OPENAI_MAX_RETRIES: ${OPENAI_MAX_RETRIES:-}
+      OPENAI_EMBEDDING_BATCH_SIZE: ${OPENAI_EMBEDDING_BATCH_SIZE:-}
+      # Fotografie
+      MAX_IMAGE_UPLOAD_MB: ${MAX_IMAGE_UPLOAD_MB:-}
+      STRIP_IMAGE_EXIF: ${STRIP_IMAGE_EXIF:-}
+      # Hromadný import
+      MAX_BATCH_FILES: ${MAX_BATCH_FILES:-}
+      MAX_ZIP_MB: ${MAX_ZIP_MB:-}
+      # Web search (volitelné)
+      WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-}
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY:-}
+      WEB_SEARCH_MAX_RESULTS: ${WEB_SEARCH_MAX_RESULTS:-}
+      WEB_SEARCH_TIMEOUT_MS: ${WEB_SEARCH_TIMEOUT_MS:-}
+      # Admin bootstrap
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
     depends_on:
       db:
         condition: service_healthy
