@@ -24,7 +24,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+# Síťově odolná instalace (delší timeouty + opakování při výpadku registru).
+# Když instalace přesto selže, vypiš SKUTEČNOU příčinu (npm debug log) a stav
+# disku přímo do deploy logu — ať se nehádá, ale vidí (typicky ENOSPC/síť).
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 600000 \
+ && { npm ci || npm install ; } \
+ || { echo "================ NPM INSTALL SELHALO ================" >&2; \
+      echo "--- posledních 150 řádků npm debug logu ---" >&2; \
+      tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
+      echo "--- volné místo na disku (df -h) ---" >&2; df -h || true; \
+      echo "--- volné inody (df -i) ---" >&2; df -i || true; \
+      exit 1 ; }
 
 COPY . .
 RUN npm run build

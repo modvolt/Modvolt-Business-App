@@ -23,6 +23,11 @@ Session cookie is `Secure` + `SameSite=None` with `trust proxy=1`. Over plain `h
 **Why:** First e2e attempt 401'd on all authed routes until the forwarded-proto header was added.
 **How to apply:** Any script/curl hitting authed endpoints locally must send `x-forwarded-proto: https`. A reusable live test lives at `modvolt-knowledge/scripts/e2e-live-test.mjs`.
 
+## Docker build itself is clean — `npm ci` failures are server-side
+The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base in ~11s and works even capped at 512MB RAM (exit 0). So when Coolify/Hetzner deploys fail at `npm ci` (slow ~72s then crash in npm's exit handler / "Exit handler never called!"), the cause is the BUILD SERVER, not npm/base image/memory — almost always disk-full (ENOSPC) or a flaky npm registry, not OOM.
+**Why:** Multiple deploys were chased as OOM/npm-version bugs; local repro proved the build is fine under every memory/version combo, so the variable is the server.
+**How to apply:** Don't keep re-tuning the Dockerfile install. Get the REAL error: the install step now dumps the npm debug-log tail + `df -h`/`df -i` to the deploy log on failure. Check disk/inodes and `docker system prune` accumulated failed-build layers on the server first. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 which has the genuine "Exit handler never called!" exit-handler bug.
+
 ## Testing AI citations must avoid the ČSN lock
 A query containing norm keywords (`proudový chránič`, `RCD`, …) forces `csn_only` mode, which filters retrieval to norm/standard document types. An `internal_procedure` test doc is then excluded → 0 chunks → ungrounded fallback answer (correct behavior, not a bug).
 **How to apply:** To prove the citation-grounding happy path, use a non-norm query against the uploaded doc's unique content (e.g. a magic constant string).
