@@ -34,6 +34,11 @@ RUN if [ -f package-lock.json ]; then \
 ```
 This rewrites all proxy URLs to real registry.npmjs.org URLs. npm ci integrity hashes (sha512) stay valid — they verify downloaded content, not the URL. This step must run BEFORE any `npm ci` call. **Any future npm install/update in Replit will re-introduce proxy URLs for new/updated packages — the Dockerfile sed step handles them all automatically.**
 
+## Coolify compose mode can't do nested ${VAR} interpolation
+Coolify's "Docker Compose" build pack does NOT reliably expand a UI-set variable embedded inside a longer string (e.g. `DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/modvolt`). The result is an empty `DATABASE_URL` → app throws "DATABASE_URL není nastaveno" at db/index.ts module-init. Simple pass-through (`KEY: ${KEY}`) of UI vars works; embedded/composed interpolation does not.
+**Why:** Repeated deploy failures: setting `POSTGRES_PASSWORD` in the UI never reached the app because the compose `environment:` used it inside the DATABASE_URL string.
+**How to apply:** For the local-only DB (no exposed `ports:`, reachable only inside the Docker network), hardcode `DATABASE_URL` and `POSTGRES_PASSWORD` as literals in `docker-compose.yml` (same value on both `app` and `db`). Real app secrets (SESSION_SECRET, S3_*, OPENAI_*, ADMIN_*) stay as Coolify UI vars — Coolify injects those into the service fine. Also note: `EAI_AGAIN db` means Coolify is running the Dockerfile single-container build, NOT compose — the `db` service isn't started; switch Build Pack to "Docker Compose" (location `docker-compose.yml`, relative to base dir `modvolt-knowledge/`).
+
 ## Docker build itself is clean — `npm ci` failures are server-side
 The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base. So when Coolify/Hetzner deploys fail at `npm ci`, suspect: (1) Replit proxy URLs in lockfile [see above], (2) ENOSPC disk full on Hetzner, (3) npm registry unreachable. The install step dumps npm debug-log + `df -h` on failure. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 with a genuine "Exit handler never called!" bug. No build toolchain needed (no `apt-get python3 make g++`).
 

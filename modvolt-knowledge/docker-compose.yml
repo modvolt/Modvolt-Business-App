@@ -1,25 +1,19 @@
 # ---------------------------------------------------------------------------
-# Modvolt Knowledge - docker-compose
+# Modvolt Knowledge - docker-compose (Coolify "Docker Compose" mód)
 #
-# Nasazení v Coolify: přepni aplikaci na typ "Docker Compose" a nastav
-# tyto environment variables v Coolify UI (DATABASE_URL se generuje
-# automaticky z POSTGRES_* hodnot níže — nenastavuj ho ručně):
+# DŮLEŽITÉ: Coolify v compose módu NEUMÍ vnořenou interpolaci proměnných
+# (tj. ${VAR} uprostřed delšího řetězce). Proto je DATABASE_URL a heslo
+# databáze napevno níže — NEpoužívá ${POSTGRES_PASSWORD}.
 #
-#   POSTGRES_PASSWORD=<silné heslo>
-#   SESSION_SECRET=<openssl rand -hex 32>
-#   NODE_ENV=production
-#   APP_BASE_URL=https://knowledge.modvolt.cz
-#   S3_ENDPOINT=fsn1.your-objectstorage.com
-#   S3_BUCKET=modvolt-docs
-#   S3_ACCESS_KEY_ID=...
-#   S3_SECRET_ACCESS_KEY=...
-#   OPENAI_API_KEY=sk-...
-#   OPENAI_ENABLED=true
-#   ADMIN_EMAIL=admin@modvolt.cz
-#   ADMIN_PASSWORD=...
+# Databáze běží lokálně ve stejném compose stacku a NEMÁ vystavený port
+# (žádné ports:), takže je dostupná jen zevnitř Docker sítě. Pevné interní
+# heslo je proto bezpečné — zvenčí se k DB nikdo nedostane.
 #
-# Lokální vývoj s vlastní DB:
-#   cp .env.example .env  # vyplň hodnoty
+# Tajné hodnoty aplikace (SESSION_SECRET, S3_*, OPENAI_*, ADMIN_*) nastav
+# v Coolify UI jako environment variables — Coolify je do služby "app"
+# vloží automaticky (jednoduché předání proměnné funguje).
+#
+# Lokální vývoj:
 #   docker compose up -d
 # ---------------------------------------------------------------------------
 services:
@@ -27,32 +21,8 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/modvolt
-      SESSION_SECRET: ${SESSION_SECRET}
-      NODE_ENV: ${NODE_ENV:-production}
-      PORT: "3000"
-      APP_BASE_URL: ${APP_BASE_URL:-}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      S3_ENDPOINT: ${S3_ENDPOINT:-}
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
-      S3_REGION: ${S3_REGION:-eu-central-1}
-      S3_BUCKET: ${S3_BUCKET:-}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
-      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_ENABLED: ${OPENAI_ENABLED:-false}
-      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
-      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
-      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4o-mini}
-      OPENAI_IMAGE_ANALYSIS_ENABLED: ${OPENAI_IMAGE_ANALYSIS_ENABLED:-false}
-      OPENAI_MAX_CONTEXT_CHUNKS: ${OPENAI_MAX_CONTEXT_CHUNKS:-8}
-      OPENAI_MAX_UPLOAD_MB: ${OPENAI_MAX_UPLOAD_MB:-15}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      ADMIN_NAME: ${ADMIN_NAME:-Administrátor}
-      MAX_BATCH_FILES: ${MAX_BATCH_FILES:-10}
-      MAX_ZIP_MB: ${MAX_ZIP_MB:-100}
+      # Interní lokální databáze (pgvector) ve stejném stacku.
+      DATABASE_URL: "postgresql://postgres:modvolt_local_db@db:5432/modvolt"
     depends_on:
       db:
         condition: service_healthy
@@ -68,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: modvolt_local_db
       POSTGRES_DB: modvolt
     volumes:
       - pgdata:/var/lib/postgresql/data
