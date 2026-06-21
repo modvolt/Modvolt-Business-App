@@ -1,0 +1,347 @@
+2026-Jun-21 12:27:25.679151 Docker 29.5.2 with BuildKit and Buildx detected on deployment server (localhost).
+2026-Jun-21 12:27:25.686474 Starting deployment of modvolt--business--app:main-y12tsgvvv2ebndpi75kf3ia8 to localhost.
+2026-Jun-21 12:27:25.839216 Preparing container with helper image: ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-21 12:27:25.950204 [DEBUG] [CMD]: docker stop --time=30 n2edxeslefsf6tpzlqhaa9rw
+2026-Jun-21 12:27:25.950204 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-21 12:27:25.954078 [DEBUG] Error response from daemon: No such container: n2edxeslefsf6tpzlqhaa9rw
+2026-Jun-21 12:27:26.138371 [DEBUG] [CMD]: docker run -d --network 'coolify' --name n2edxeslefsf6tpzlqhaa9rw  --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-21 12:27:26.138371 [DEBUG] cb9a818f5ca742662d7643a7d3396b7c3cbf1376f2acb79ec1a160b453c98e1a
+2026-Jun-21 12:27:27.780482 [DEBUG] [CMD]: docker exec n2edxeslefsf6tpzlqhaa9rw bash -c 'GIT_SSH_COMMAND="ssh -o ConnectTimeout=30 -p 22 -o Port=22 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git ls-remote https://x-access-token:<REDACTED>@github.com/modvolt/Modvolt-Business-App.git refs/heads/main'
+2026-Jun-21 12:27:27.780482 [DEBUG] cce9d68962e30b77f7a8dff28983c2a8a5b7d74e	refs/heads/main
+2026-Jun-21 12:27:28.065225 ----------------------------------------
+2026-Jun-21 12:27:28.090133 Importing modvolt/Modvolt-Business-App:main (commit sha cce9d68962e30b77f7a8dff28983c2a8a5b7d74e) to /artifacts/n2edxeslefsf6tpzlqhaa9rw.
+2026-Jun-21 12:27:28.245447 [DEBUG] [CMD]: docker exec n2edxeslefsf6tpzlqhaa9rw bash -c 'git clone --depth=1 --recurse-submodules --shallow-submodules -b '\''main'\'' '\''https://x-access-token:<REDACTED>@github.com/modvolt/Modvolt-Business-App.git'\'' '\''/artifacts/n2edxeslefsf6tpzlqhaa9rw'\'' && cd '\''/artifacts/n2edxeslefsf6tpzlqhaa9rw'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git fetch --depth=1 origin '\''cce9d68962e30b77f7a8dff28983c2a8a5b7d74e'\'' && git -c advice.detachedHead=false checkout '\''cce9d68962e30b77f7a8dff28983c2a8a5b7d74e'\'' >/dev/null 2>&1 && cd '\''/artifacts/n2edxeslefsf6tpzlqhaa9rw'\'' && if [ -f .gitmodules ]; then git submodule sync && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git submodule update --init --recursive --depth=1; fi && cd '\''/artifacts/n2edxeslefsf6tpzlqhaa9rw'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git lfs pull'
+2026-Jun-21 12:27:28.245447 [DEBUG] Cloning into '/artifacts/n2edxeslefsf6tpzlqhaa9rw'...
+2026-Jun-21 12:27:29.352389 [DEBUG] From https://github.com/modvolt/Modvolt-Business-App
+2026-Jun-21 12:<REDACTED>@img/* a @esbuild/*),
+2026-Jun-21 12:27:32.352568 [DEBUG] # nic se nekompiluje ze zdroje. Ověřeno: `npm ci` v čistém node:24-slim projde
+2026-Jun-21 12:27:32.352568 [DEBUG] # bez build nástrojů. Vynecháním apt-get mizí závislost na Debian mirrorech
+2026-Jun-21 12:27:32.352568 [DEBUG] # (častý zdroj zaseknutí buildu při "redeploy without cache").
+2026-Jun-21 12:27:32.352568 [DEBUG] 
+2026-Jun-21 12:27:32.352568 [DEBUG] COPY package.json package-lock.json* ./
+2026-Jun-21 12:27:32.352568 [DEBUG] 
+2026-Jun-21 12:27:32.352568 [DEBUG] # Rychlý test, zda je npm registry z build kontejneru vůbec dosažitelná
+2026-Jun-21 12:27:32.352568 [DEBUG] # (na serveru vidíme v logu latenci / nedostupnost).
+2026-Jun-21 12:27:32.352568 [DEBUG] RUN node -e "const t=Date.now();fetch('https://registry.npmjs.org/-/ping',{signal:<REDACTED>@sha256:c2d5ade763cacfb03fe9cb8e8af5d1be5041ff331921fa26a9b231ca3a4f780a
+2026-Jun-21 12:27:33.925998 [DEBUG] #5 resolve docker.io/library/node:24-slim@sha256:c2d5ade763cacfb03fe9cb8e8af5d1be5041ff331921fa26a9b231ca3a4f780a 0.0s done
+2026-Jun-21 12:27:33.925998 [DEBUG] #5 DONE 0.0s
+2026-Jun-21 12:27:33.925998 [DEBUG] 
+2026-Jun-21 12:27:33.925998 [DEBUG] #6 [build 2/8] WORKDIR /app
+2026-Jun-21 12:27:33.925998 [DEBUG] #6 CACHED
+2026-Jun-21 12:27:33.925998 [DEBUG] 
+2026-Jun-21 12:27:33.925998 [DEBUG] #7 [internal] load build context
+2026-Jun-21 12:27:34.146577 [DEBUG] #7 transferring context: 843.09kB 0.0s done
+2026-Jun-21 12:27:34.146577 [DEBUG] #7 DONE 0.0s
+2026-Jun-21 12:27:34.146577 [DEBUG] 
+2026-Jun-21 12:27:34.146577 [DEBUG] #8 [build 3/8] COPY package.json package-lock.json* ./
+2026-Jun-21 12:27:34.146577 [DEBUG] #8 DONE 0.1s
+2026-Jun-21 12:27:34.146577 [DEBUG] 
+2026-Jun-21 12:27:34.146577 [DEBUG] #9 [build 4/8] RUN node -e "const t=Date.now();fetch('https://registry.npmjs.org/-/ping',{signal:<REDACTED>@11.13.0
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 2 info using node@v24.17.0
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 4 silly config load:file:/app/.npmrc
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 5 silly config load:file:/root/.npmrc
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 6 silly config load:file:/usr/local/etc/npmrc
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 7 verbose title npm config set fetch-timeout 120000
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 8 verbose argv "config" "set" "fetch-timeout" "120000"
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 9 verbose logfile logs-max:10 dir:/root/.npm/_logs/2026-06-21T12_27_34_870Z-
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 10 verbose logfile /root/.npm/_logs/2026-06-21T12_27_34_870Z-debug-0.log
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 11 silly logfile done cleaning log files
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 12 info config set "fetch-timeout" "120000"
+2026-Jun-21 12:31:59.135021 [DEBUG] #10 264.5 13 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 14 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 15 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 16 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 17 verbose exit 0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 18 info ok
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 ==> /root/.npm/_logs/2026-06-21T12_27_35_015Z-debug-0.log <==
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1 info using npm@11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 2 info using node@v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 4 silly config load:file:/app/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 5 silly config load:file:/root/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 6 silly config load:file:/usr/local/etc/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 7 verbose title npm config set fetch-retries 3
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 8 verbose argv "config" "set" "fetch-retries" "3"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 9 verbose logfile logs-max:10 dir:/root/.npm/_logs/2026-06-21T12_27_35_015Z-
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 10 verbose logfile /root/.npm/_logs/2026-06-21T12_27_35_015Z-debug-0.log
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 11 silly logfile done cleaning log files
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 12 info config set "fetch-retries" "3"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 13 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 14 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 15 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 16 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 17 verbose exit 0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 18 info ok
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 ==> /root/.npm/_logs/2026-06-21T12_27_35_155Z-debug-0.log <==
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1 info using npm@11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 2 info using node@v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 4 silly config load:file:/app/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 5 silly config load:file:/root/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 6 silly config load:file:/usr/local/etc/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 7 verbose title npm config set fetch-retry-mintimeout 10000
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 8 verbose argv "config" "set" "fetch-retry-mintimeout" "10000"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 9 verbose logfile logs-max:10 dir:/root/.npm/_logs/2026-06-21T12_27_35_155Z-
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 10 verbose logfile /root/.npm/_logs/2026-06-21T12_27_35_155Z-debug-0.log
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 11 silly logfile done cleaning log files
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 12 info config set "fetch-retry-mintimeout" "10000"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 13 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 14 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 15 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 16 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 17 verbose exit 0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 18 info ok
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 ==> /root/.npm/_logs/2026-06-21T12_27_35_330Z-debug-0.log <==
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1 info using npm@11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 2 info using node@v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 4 silly config load:file:/app/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 5 silly config load:file:/root/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 6 silly config load:file:/usr/local/etc/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 7 verbose title npm config set fetch-retry-maxtimeout 60000
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 8 verbose argv "config" "set" "fetch-retry-maxtimeout" "60000"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 9 verbose logfile logs-max:10 dir:/root/.npm/_logs/2026-06-21T12_27_35_330Z-
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 10 verbose logfile /root/.npm/_logs/2026-06-21T12_27_35_330Z-debug-0.log
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 11 silly logfile done cleaning log files
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 12 info config set "fetch-retry-maxtimeout" "60000"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 13 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 14 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 15 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 16 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 17 verbose exit 0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 18 info ok
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 ==> /root/.npm/_logs/2026-06-21T12_27_35_459Z-debug-0.log <==
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1 info using npm@11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 2 info using node@v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 4 silly config load:file:/app/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 5 silly config load:file:/root/.npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 6 silly config load:file:/usr/local/etc/npmrc
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 7 verbose title npm config set maxsockets 5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 8 verbose argv "config" "set" "maxsockets" "5"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 9 verbose logfile logs-max:10 dir:/root/.npm/_logs/2026-06-21T12_27_35_459Z-
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 10 verbose logfile /root/.npm/_logs/2026-06-21T12_27_35_459Z-debug-0.log
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 11 silly logfile done cleaning log files
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 12 info config set "maxsockets" "5"
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 13 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 14 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 15 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 16 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 17 verbose exit 0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 18 info ok
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 ==> /root/.npm/_logs/2026-06-21T12_27_35_589Z-debug-0.log <==
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 790 silly tarball no local data for safe-buffer@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@esbuild-kit/esm-loader@http://package-firewall.replit.local/npm/@esbuild-kit/esm-loader/-/esm-loader-2.6.5.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@esbuild-kit/core-utils@http:<REDACTED>@esbuild-kit/core-utils/-/core-utils-3.3.2.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 794 silly tarball no local data for esbuild@http://package-firewall.replit.local/npm/esbuild/-/esbuild-0.18.20.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@esbuild/linux-x64@http:<REDACTED>@esbuild/linux-x64/-/linux-x64-0.18.20.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 796 silly tarball no local data for string_decoder@http://package-firewall.replit.local/npm/string_decoder/-/string_decoder-1.1.1.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/debug/-/debug-2.6.9.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@types/send@http://package-firewall.replit.local/npm/@types/send/-/send-0.17.6.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@types/node@http:<REDACTED>@types/node/-/node-14.18.63.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 806 silly tarball no local data for @types/node@http://package-firewall.replit.local/npm/@types/node/-/node-14.18.63.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@smithy/signature-v4@http:<REDACTED>@smithy/signature-v4/-/signature-v4-5.5.1.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 808 silly tarball no local data for @aws-sdk/checksums@http://package-firewall.replit.local/npm/@aws-sdk/checksums/-/checksums-3.1000.7.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@smithy/credential-provider-imds@http:<REDACTED>@smithy/credential-provider-imds/-/credential-provider-imds-4.4.1.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 810 silly tarball no local data for @aws-sdk/token-providers@http://package-firewall.replit.local/npm/@aws-sdk/token-providers/-/token-providers-3.1071.0.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/nested-clients@http:<REDACTED>@aws-sdk/nested-clients/-/nested-clients-3.997.22.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 812 silly tarball no local data for @aws-sdk/credential-provider-web-identity@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.54.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-process@http:<REDACTED>@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.48.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 814 silly tarball no local data for @aws-sdk/credential-provider-sso@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.972.54.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-login@http:<REDACTED>@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.54.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 816 silly tarball no local data for @aws-sdk/credential-provider-ini@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.972.55.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-http@http:<REDACTED>@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.50.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 818 silly tarball no local data for @aws-sdk/credential-provider-env@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.48.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@smithy/signature-v4@http:<REDACTED>@smithy/signature-v4/-/signature-v4-5.5.1.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 820 http fetch GET http://package-firewall.replit.local/npm/zod/-/zod-3.25.76.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@esbuild%2flinux-x64 762ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 864 silly packumentCache corgi:https://registry.npmjs.org/@esbuild%2flinux-x64 set size:<REDACTED>@esbuild%2flinux-x64 765ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 866 silly packumentCache corgi:https://registry.npmjs.org/@esbuild%2flinux-x64 set size:<REDACTED>@esbuild%2flinux-x64 950ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 877 silly packumentCache corgi:https://registry.npmjs.org/@esbuild%2flinux-x64 set size:<REDACTED>@babel%2fparser 1020ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 885 silly packumentCache corgi:https://registry.npmjs.org/@babel%2fparser set size:<REDACTED>@types%2fnode 1279ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 899 silly packumentCache corgi:https://registry.npmjs.org/@types%2fnode set size:<REDACTED>@babel/parser/-/parser-7.29.7.tgz 443ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 902 http fetch GET 200 https://registry.npmjs.org/typescript 1554ms (cache miss)
+2026-Jun-21 12:<REDACTED>@types/node/-/node-18.19.130.tgz 428ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 907 http fetch GET 200 https://registry.npmjs.org/vite/-/vite-5.4.21.tgz 997ms (cache miss)
+2026-Jun-21 12:<REDACTED>@esbuild/linux-x64/-/linux-x64-0.21.5.tgz 1223ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 911 http fetch GET 200 https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.19.12.tgz 1031ms (cache miss)
+2026-Jun-21 12:<REDACTED>@esbuild/linux-x64/-/linux-x64-0.28.1.tgz 1263ms (cache miss)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 913 http fetch GET 200 https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz 717ms (cache miss)
+2026-Jun-21 12:<REDACTED>@smithy/credential-provider-imds@http://package-firewall.replit.local/npm/@smithy/credential-provider-imds/-/credential-provider-imds-4.4.1.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/token-providers@http:<REDACTED>@aws-sdk/token-providers/-/token-providers-3.1071.0.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1130 silly tarball no local data for @aws-sdk/credential-provider-sso@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.972.54.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-process@http:<REDACTED>@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.48.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1132 silly tarball no local data for @aws-sdk/credential-provider-login@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.54.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-ini@http:<REDACTED>@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.972.55.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1134 silly tarball no local data for @aws-sdk/credential-provider-http@http://package-firewall.replit.local/npm/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.50.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@aws-sdk/credential-provider-env@http:<REDACTED>@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.48.tgz. Extracting by manifest.
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1136 silly tarball no local data for @smithy/signature-v4@http://package-firewall.replit.local/npm/@smithy/signature-v4/-/signature-v4-5.5.1.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/readable-stream/-/readable-stream-2.3.8.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/debug/-/debug-2.6.9.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/brace-expansion/-/brace-expansion-2.1.1.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/readable-stream/-/readable-stream-2.3.8.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/ms/-/ms-2.0.0.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/cookie-signature/-/cookie-signature-1.0.7.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/debug/-/debug-2.6.9.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/ms/-/ms-2.0.0.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/string_decoder/-/string_decoder-1.1.1.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/debug/-/debug-2.6.9.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@http://package-firewall.replit.local/npm/safe-buffer/-/safe-buffer-5.1.2.tgz. Extracting by manifest.
+2026-Jun-21 12:<REDACTED>@http:<REDACTED>@vitejs/plugin-react/-/plugin-react-4.7.0.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1171 http fetch GET http://package-firewall.replit.local/npm/@xmldom/xmldom/-/xmldom-0.8.13.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/send/-/send-1.2.1.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1173 http fetch GET http://package-firewall.replit.local/npm/@types/serve-static/-/serve-static-1.15.10.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/react-dom/-/react-dom-18.3.7.tgz attempt 1 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1175 http cache https://registry.npmjs.org/rimraf 532ms (cache hit)
+2026-Jun-21 12:<REDACTED>@babel%2fparser 694ms (cache hit)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1218 silly packumentCache corgi:https://registry.npmjs.org/@babel%2fparser set size:<REDACTED>@babel/parser/-/parser-7.29.7.tgz 572ms (cache revalidated)
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1253 http fetch GET http://package-firewall.replit.local/npm/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz attempt 2 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@xmldom/xmldom/-/xmldom-0.8.13.tgz attempt 2 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1255 http fetch GET http://package-firewall.replit.local/npm/@types/serve-static/-/serve-static-1.15.10.tgz attempt 2 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/send/-/send-1.2.1.tgz attempt 2 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1257 http fetch GET http://package-firewall.replit.local/npm/@types/react-dom/-/react-dom-18.3.7.tgz attempt 2 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@xmldom/xmldom/-/xmldom-0.8.13.tgz attempt 3 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1259 http fetch GET http://package-firewall.replit.local/npm/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz attempt 3 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/serve-static/-/serve-static-1.15.10.tgz attempt 3 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1261 http fetch GET http://package-firewall.replit.local/npm/@types/send/-/send-1.2.1.tgz attempt 3 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/react-dom/-/react-dom-18.3.7.tgz attempt 3 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1263 http fetch GET http://package-firewall.replit.local/npm/@xmldom/xmldom/-/xmldom-0.8.13.tgz attempt 4 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@vitejs/plugin-react/-/plugin-react-4.7.0.tgz attempt 4 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1265 http fetch GET http://package-firewall.replit.local/npm/@types/serve-static/-/serve-static-1.15.10.tgz attempt 4 failed with ENOTFOUND
+2026-Jun-21 12:<REDACTED>@types/send/-/send-1.2.1.tgz attempt 4 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1267 http fetch GET http://package-firewall.replit.local/npm/@types/react-dom/-/react-dom-18.3.7.tgz attempt 4 failed with ENOTFOUND
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1268 verbose cwd /app
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1269 verbose os Linux 7.0.0-15-generic
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1270 verbose node v24.17.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1271 verbose npm  v11.13.0
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1272 error Exit handler never called!
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1273 error This is an error with npm itself. Please report this error at:
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1274 error   <https://github.com/npm/cli/issues>
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1275 verbose exit 1
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1276 verbose code 1
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 1277 error A complete log of this run can be found in: /root/.npm/_logs/2026-06-21T12_29_47_417Z-debug-0.log
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 --- volné místo na disku (df -h) ---
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 Filesystem      Size  Used Avail Use% Mounted on
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 overlay          38G   16G   20G  45% /
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 tmpfs            64M     0   64M   0% /dev
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 shm              64M     0   64M   0% /dev/shm
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 /dev/sda1        38G   16G   20G  45% /etc/resolv.conf
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 tmpfs           1.9G     0  1.9G   0% /proc/acpi
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 tmpfs           1.9G     0  1.9G   0% /sys/firmware
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 264.5 tmpfs           1.9G     0  1.9G   0% /proc/scsi
+2026-Jun-21 12:31:59.142488 [DEBUG] #10 ERROR: process "/bin/sh -c npm config set fetch-timeout 120000  && npm config set fetch-retries 3  && npm config set fetch-retry-mintimeout 10000  && npm config set fetch-retry-maxtimeout 60000  && npm config set maxsockets 5  && { npm ci || npm install ; }  || { echo \"================ NPM INSTALL SELHALO ================\" >&2;       echo \"--- posledních 150 řádků npm debug logu ---\" >&2;       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true;       echo \"--- volné místo na disku (df -h) ---\" >&2; df -h || true;       exit 1 ; }" did not complete successfully: exit code: 1
+2026-Jun-21 12:31:59.188476 [DEBUG] ------
+2026-Jun-21 12:31:59.188476 [DEBUG] > [build 5/8] RUN npm config set fetch-timeout 120000  && npm config set fetch-retries 3  && npm config set fetch-retry-mintimeout 10000  && npm config set fetch-retry-maxtimeout 60000  && npm config set maxsockets 5  && { npm ci || npm install ; }  || { echo "================ NPM INSTALL SELHALO ================" >&2;       echo "--- posledních 150 řádků npm debug logu ---" >&2;       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true;       echo "--- volné místo na disku (df -h) ---" >&2; df -h || true;       exit 1 ; }:
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 1277 error A complete log of this run can be found in: /root/.npm/_logs/2026-06-21T12_29_47_417Z-debug-0.log
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 --- volné místo na disku (df -h) ---
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 Filesystem      Size  Used Avail Use% Mounted on
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 overlay          38G   16G   20G  45% /
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 tmpfs            64M     0   64M   0% /dev
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 shm              64M     0   64M   0% /dev/shm
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 /dev/sda1        38G   16G   20G  45% /etc/resolv.conf
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 tmpfs           1.9G     0  1.9G   0% /proc/acpi
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 tmpfs           1.9G     0  1.9G   0% /sys/firmware
+2026-Jun-21 12:31:59.188476 [DEBUG] 264.5 tmpfs           1.9G     0  1.9G   0% /proc/scsi
+2026-Jun-21 12:31:59.188476 [DEBUG] ------
+2026-Jun-21 12:31:59.194635 [DEBUG] Dockerfile:40
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] --------------------
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 39 |     # Když instalace selže, vypiš SKUTEČNOU příčinu (npm debug log) + stav disku.
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 40 | >>> RUN npm config set fetch-timeout 120000 \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 41 | >>>  && npm config set fetch-retries 3 \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 42 | >>>  && npm config set fetch-retry-mintimeout 10000 \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 43 | >>>  && npm config set fetch-retry-maxtimeout 60000 \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 44 | >>>  && npm config set maxsockets 5 \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 45 | >>>  && { npm ci || npm install ; } \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 46 | >>>  || { echo "================ NPM INSTALL SELHALO ================" >&2; \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 47 | >>>       echo "--- posledních 150 řádků npm debug logu ---" >&2; \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 48 | >>>       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 49 | >>>       echo "--- volné místo na disku (df -h) ---" >&2; df -h || true; \
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 50 | >>>       exit 1 ; }
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] 51 |
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] --------------------
+2026-Jun-21 12:31:59.194635 [DEBUG] 
+2026-Jun-21 12:31:59.194635 [DEBUG] failed to solve: process "/bin/sh -c npm config set fetch-timeout 120000  && npm config set fetch-retries 3  && npm config set fetch-retry-mintimeout 10000  && npm config set fetch-retry-maxtimeout 60000  && npm config set maxsockets 5  && { npm ci || npm install ; }  || { echo \"================ NPM INSTALL SELHALO ================\" >&2;       echo \"--- posledních 150 řádků npm debug logu ---\" >&2;       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true;       echo \"--- volné místo na disku (df -h) ---\" >&2; df -h || true;       exit 1 ; }" did not complete successfully: exit code: 1
+2026-Jun-21 12:31:59.202445 [DEBUG] exit status 1
+2026-Jun-21 12:31:59.266677 ========================================
+2026-Jun-21 12:31:59.276228 Deployment failed: Command execution failed (exit code 1): docker exec n2edxeslefsf6tpzlqhaa9rw bash -c 'DOCKER_BUILDKIT=1 COOLIFY_BRANCH=main COOLIFY_RESOURCE_UUID=y12tsgvvv2ebndpi75kf3ia8  docker compose --env-file /artifacts/build-time.env --project-name y12tsgvvv2ebndpi75kf3ia8 --project-directory /artifacts/n2edxeslefsf6tpzlqhaa9rw -f /artifacts/n2edxeslefsf6tpzlqhaa9rw/docker-compose.yml build --pull --build-arg COOLIFY_FQDN --build-arg SERVICE_URL_APP --build-arg SERVICE_FQDN_APP --build-arg COOLIFY_BUILD_SECRETS_HASH=d7691a8c611a3d992e1094084c3dd5cf4dc9c93ce957f594399af66beee1c65e'
+2026-Jun-21 12:31:59.276228 Error: Dockerfile:40
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 --------------------
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 39 |     # Když instalace selže, vypiš SKUTEČNOU příčinu (npm debug log) + stav disku.
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 40 | >>> RUN npm config set fetch-timeout 120000 \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 41 | >>>  && npm config set fetch-retries 3 \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 42 | >>>  && npm config set fetch-retry-mintimeout 10000 \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 43 | >>>  && npm config set fetch-retry-maxtimeout 60000 \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 44 | >>>  && npm config set maxsockets 5 \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 45 | >>>  && { npm ci || npm install ; } \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 46 | >>>  || { echo "================ NPM INSTALL SELHALO ================" >&2; \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 47 | >>>       echo "--- posledních 150 řádků npm debug logu ---" >&2; \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 48 | >>>       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 49 | >>>       echo "--- volné místo na disku (df -h) ---" >&2; df -h || true; \
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 50 | >>>       exit 1 ; }
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 51 |
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 --------------------
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 failed to solve: process "/bin/sh -c npm config set fetch-timeout 120000  && npm config set fetch-retries 3  && npm config set fetch-retry-mintimeout 10000  && npm config set fetch-retry-maxtimeout 60000  && npm config set maxsockets 5  && { npm ci || npm install ; }  || { echo \"================ NPM INSTALL SELHALO ================\" >&2;       echo \"--- posledních 150 řádků npm debug logu ---\" >&2;       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true;       echo \"--- volné místo na disku (df -h) ---\" >&2; df -h || true;       exit 1 ; }" did not complete successfully: exit code: 1
+2026-Jun-21 12:31:59.276228 
+2026-Jun-21 12:31:59.276228 exit status 1
+2026-Jun-21 12:31:59.285716 [DEBUG] Error type: App\Exceptions\DeploymentException
+2026-Jun-21 12:31:59.294837 [DEBUG] Error code: 0
+2026-Jun-21 12:31:59.304662 [DEBUG] Location: /var/www/html/app/Traits/ExecuteRemoteCommand.php:242
+2026-Jun-21 12:31:59.315155 [DEBUG] Stack trace (first 5 lines):
+2026-Jun-21 12:31:59.325482 [DEBUG] #0 /var/www/html/app/Traits/ExecuteRemoteCommand.php(106): App\Jobs\ApplicationDeploymentJob->executeCommandWithProcess()
+2026-Jun-21 12:31:59.336479 [DEBUG] #1 /var/www/html/vendor/laravel/framework/src/Illuminate/Collections/Traits/EnumeratesValues.php(275): App\Jobs\ApplicationDeploymentJob->{closure:App\Traits\ExecuteRemoteCommand::execute_remote_command():72}()
+2026-Jun-21 12:31:59.346503 [DEBUG] #2 /var/www/html/app/Traits/ExecuteRemoteCommand.php(72): Illuminate\Support\Collection->each()
+2026-Jun-21 12:31:59.357721 [DEBUG] #3 /var/www/html/app/Jobs/ApplicationDeploymentJob.php(772): App\Jobs\ApplicationDeploymentJob->execute_remote_command()
+2026-Jun-21 12:31:59.371737 [DEBUG] #4 /var/www/html/app/Jobs/ApplicationDeploymentJob.php(496): App\Jobs\ApplicationDeploymentJob->deploy_docker_compose_buildpack()
+2026-Jun-21 12:31:59.384098 ========================================
+2026-Jun-21 12:31:59.766261 Gracefully shutting down build container: n2edxeslefsf6tpzlqhaa9rw
+2026-Jun-21 12:31:59.916751 [DEBUG] [CMD]: docker stop --time=30 n2edxeslefsf6tpzlqhaa9rw
+2026-Jun-21 12:31:59.916751 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-21 12:32:00.051298 [DEBUG] n2edxeslefsf6tpzlqhaa9rw

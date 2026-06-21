@@ -23,10 +23,19 @@ Session cookie is `Secure` + `SameSite=None` with `trust proxy=1`. Over plain `h
 **Why:** First e2e attempt 401'd on all authed routes until the forwarded-proto header was added.
 **How to apply:** Any script/curl hitting authed endpoints locally must send `x-forwarded-proto: https`. A reusable live test lives at `modvolt-knowledge/scripts/e2e-live-test.mjs`.
 
+## CRITICAL: Replit bakes its internal proxy URL into package-lock.json
+Replit's npm runs through an internal package firewall (`http://package-firewall.replit.local/npm/...`). Every package installed or updated inside Replit gets this URL written into `package-lock.json` as the `"resolved"` field. Outside Replit (Hetzner Docker build), these URLs return ENOTFOUND → npm fails with "Exit handler never called!" after exhausting retries.
+**Why:** 541 packages in the lockfile had `package-firewall.replit.local` URLs. Adding `express-rate-limit` + `helmet` in Replit caused those packages (and their transitive deps) to be written with proxy URLs, breaking the Docker build.
+**How to apply:** The Dockerfile now has a `sed` step immediately after `COPY package.json package-lock.json* ./`:
+```dockerfile
+RUN if [ -f package-lock.json ]; then \
+      sed -i 's|http://package-firewall\.replit\.local/npm/|https://registry.npmjs.org/|g' package-lock.json; \
+    fi
+```
+This rewrites all proxy URLs to real registry.npmjs.org URLs. npm ci integrity hashes (sha512) stay valid — they verify downloaded content, not the URL. This step must run BEFORE any `npm ci` call. **Any future npm install/update in Replit will re-introduce proxy URLs for new/updated packages — the Dockerfile sed step handles them all automatically.**
+
 ## Docker build itself is clean — `npm ci` failures are server-side
-The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base in ~11s and works even capped at 512MB RAM (exit 0). So when Coolify/Hetzner deploys fail at `npm ci` (slow ~72s then crash in npm's exit handler / "Exit handler never called!"), the cause is the BUILD SERVER, not npm/base image/memory — almost always disk-full (ENOSPC) or a flaky npm registry, not OOM.
-**Why:** Multiple deploys were chased as OOM/npm-version bugs; local repro proved the build is fine under every memory/version combo, so the variable is the server.
-**How to apply:** Don't keep re-tuning the Dockerfile install. Get the REAL error: the install step dumps the npm debug-log tail + `df -h` to the deploy log on failure, and pings the npm registry before install to show latency/unreachability. Check disk/inodes and `docker system prune` accumulated failed-build layers on the server first. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 which has the genuine "Exit handler never called!" exit-handler bug. NO build toolchain is needed (no `apt-get python3 make g++`): sharp + esbuild install as prebuilt binaries (optional deps `@img/*`, `@esbuild/*`); a full `npm ci` + `npm run build` succeeds in a bare `node:24-slim`. Avoid huge npm `fetch-timeout` values — a single stalled socket then hangs the whole build (looks "stuck") instead of failing fast; keep it ~120s with bounded retries.
+The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base. So when Coolify/Hetzner deploys fail at `npm ci`, suspect: (1) Replit proxy URLs in lockfile [see above], (2) ENOSPC disk full on Hetzner, (3) npm registry unreachable. The install step dumps npm debug-log + `df -h` on failure. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 with a genuine "Exit handler never called!" bug. No build toolchain needed (no `apt-get python3 make g++`).
 
 ## Testing AI citations must avoid the ČSN lock
 A query containing norm keywords (`proudový chránič`, `RCD`, …) forces `csn_only` mode, which filters retrieval to norm/standard document types. An `internal_procedure` test doc is then excluded → 0 chunks → ungrounded fallback answer (correct behavior, not a bug).

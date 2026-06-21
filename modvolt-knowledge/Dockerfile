@@ -26,24 +26,30 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
 
 COPY package.json package-lock.json* ./
 
-# Rychlý test, zda je npm registry z build kontejneru vůbec dosažitelná
-# (na serveru vidíme v logu latenci / nedostupnost).
+# Replit zapisuje do package-lock.json svůj interní proxy registr
+# (http://package-firewall.replit.local/npm/...) místo registry.npmjs.org.
+# Tyto URL jsou mimo Replit NEDOSTUPNÉ (ENOTFOUND) a způsobují selhání
+# `npm ci` ve Docker buildu. Přepíšeme je na skutečný registr.
+# Integrity hash (sha512) zůstane stejný — npm ci ho ověřuje proti obsahu
+# staženého tgz, ne proti URL.
+RUN if [ -f package-lock.json ]; then \
+      sed -i 's|http://package-firewall\.replit\.local/npm/|https://registry.npmjs.org/|g' package-lock.json; \
+      echo "Lockfile URL rewrite: $(grep -c registry.npmjs.org package-lock.json) entries -> registry.npmjs.org"; \
+    fi
+
+# Rychlý test, zda je npm registry z build kontejneru vůbec dosažitelná.
 RUN node -e "const t=Date.now();fetch('https://registry.npmjs.org/-/ping',{signal:AbortSignal.timeout(15000)}).then(r=>console.log('npm registry OK',r.status,(Date.now()-t)+'ms')).catch(e=>console.error('npm registry NEDOSTUPNA:',e.message))" || true
 
-# Síťově odolná, ale RYCHLE SELHÁVAJÍCÍ instalace — žádné nekonečné čekání.
-# (Předchozí fetch-timeout 600000 způsobil, že jediné zaseknuté spojení
-#  drželo build i 10 min; proto kratší timeouty + omezení paralelních spojení.)
-# Když instalace selže, vypiš SKUTEČNOU příčinu (npm debug log) + stav disku.
+# Instalace závislostí. Když selže, vypiš npm debug log + stav disku.
 RUN npm config set fetch-timeout 120000 \
  && npm config set fetch-retries 3 \
  && npm config set fetch-retry-mintimeout 10000 \
  && npm config set fetch-retry-maxtimeout 60000 \
  && npm config set maxsockets 5 \
- && { npm ci || npm install ; } \
- || { echo "================ NPM INSTALL SELHALO ================" >&2; \
-      echo "--- posledních 150 řádků npm debug logu ---" >&2; \
-      tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
-      echo "--- volné místo na disku (df -h) ---" >&2; df -h || true; \
+ && npm ci \
+ || { echo "================ NPM CI SELHALO ================" >&2; \
+      tail -n 100 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
+      df -h || true; \
       exit 1 ; }
 
 COPY . .
