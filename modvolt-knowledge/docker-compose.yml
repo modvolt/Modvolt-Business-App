@@ -1,32 +1,61 @@
 # ---------------------------------------------------------------------------
 # Modvolt Knowledge - docker-compose
 #
-# Migrace: aplikace si sama aplikuje čekající databázové migrace při startu,
-# PŘED servírováním provozu (viz src/server/index.ts). Žádný samostatný
-# migrační krok není potřeba; pokud migrace selžou, kontejner spadne a
-# nasazení selže hlasitě místo běhu proti zastaralému schématu.
+# Nasazení v Coolify: přepni aplikaci na typ "Docker Compose" a nastav
+# tyto environment variables v Coolify UI (DATABASE_URL se generuje
+# automaticky z POSTGRES_* hodnot níže — nenastavuj ho ručně):
 #
-# Dvě varianty provozu:
-#  1) Coolify s externí PostgreSQL službou:
-#     - nech zakomentovanou službu "db" a nastav DATABASE_URL na externí databázi
-#  2) Vlastní PostgreSQL + pgvector kontejner:
-#     - odkomentuj službu "db" a profil "with-db"
-#       spuštění: docker compose --profile with-db up -d
+#   POSTGRES_PASSWORD=<silné heslo>
+#   SESSION_SECRET=<openssl rand -hex 32>
+#   NODE_ENV=production
+#   APP_BASE_URL=https://knowledge.modvolt.cz
+#   S3_ENDPOINT=fsn1.your-objectstorage.com
+#   S3_BUCKET=modvolt-docs
+#   S3_ACCESS_KEY_ID=...
+#   S3_SECRET_ACCESS_KEY=...
+#   OPENAI_API_KEY=sk-...
+#   OPENAI_ENABLED=true
+#   ADMIN_EMAIL=admin@modvolt.cz
+#   ADMIN_PASSWORD=...
+#
+# Lokální vývoj s vlastní DB:
+#   cp .env.example .env  # vyplň hodnoty
+#   docker compose up -d
 # ---------------------------------------------------------------------------
 services:
   app:
     build: .
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      PORT: 3000
-    ports:
-      - "3000:3000"
-    # depends_on potřebné jen pro variantu s vlastní DB
-    # depends_on:
-    #   db:
-    #     condition: service_healthy
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/modvolt
+      SESSION_SECRET: ${SESSION_SECRET}
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "3000"
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-eu-central-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ENABLED: ${OPENAI_ENABLED:-false}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4o-mini}
+      OPENAI_IMAGE_ANALYSIS_ENABLED: ${OPENAI_IMAGE_ANALYSIS_ENABLED:-false}
+      OPENAI_MAX_CONTEXT_CHUNKS: ${OPENAI_MAX_CONTEXT_CHUNKS:-8}
+      OPENAI_MAX_UPLOAD_MB: ${OPENAI_MAX_UPLOAD_MB:-15}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrátor}
+      MAX_BATCH_FILES: ${MAX_BATCH_FILES:-10}
+      MAX_ZIP_MB: ${MAX_ZIP_MB:-100}
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -34,22 +63,21 @@ services:
       retries: 3
       start_period: 20s
 
-  # --- Volitelná vlastní databáze s pgvector (profil "with-db") ---
   db:
     image: pgvector/pgvector:pg16
-    profiles: ["with-db"]
     restart: unless-stopped
     environment:
-      POSTGRES_USER: modvolt
-      POSTGRES_PASSWORD: modvolt
-      POSTGRES_DB: modvolt_knowledge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: modvolt
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U modvolt -d modvolt_knowledge"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d modvolt"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
 volumes:
   pgdata:
