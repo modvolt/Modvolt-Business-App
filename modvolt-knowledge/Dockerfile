@@ -1,15 +1,22 @@
 # ---------------------------------------------------------------------------
 # Modvolt Knowledge - produkční Dockerfile (použitelný mimo Replit)
 #
+# Base image node:24-slim (npm 11). Pozor: node:22-slim dodává npm 10.9.x,
+# které trpí chybou "Exit handler never called!" a build na něm padá na konci
+# `npm ci` (chyba v samotném npm, ne nedostatek paměti). node:24 je zároveň
+# shodné s vývojovým prostředím.
+#
 # Závislosti se instalují POUZE JEDNOU v build fázi. Runtime fáze už jen
 # zkopíruje hotové (a od dev-závislostí očištěné) node_modules. Tím se
-# nezdvojuje instalace nativních modulů (sharp) a hlavně se nespotřebuje
-# dvojnásobek paměti při paralelním buildu (BuildKit jinak staví obě fáze
-# současně -> npm byl zabíjen kvůli nedostatku paměti / "Exit handler never
-# called!").
+# nezdvojuje instalace nativních modulů (sharp) ani spotřeba paměti.
 # ---------------------------------------------------------------------------
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
+
+# Méně upovídané/křehké npm (update-notifier umí shodit exit handler).
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
 
 # Nativní závislosti pro případný build sharp / pdf-parse
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+RUN npm ci || npm install
 
 COPY . .
 RUN npm run build
@@ -27,7 +34,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # --- Runtime image ---
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 

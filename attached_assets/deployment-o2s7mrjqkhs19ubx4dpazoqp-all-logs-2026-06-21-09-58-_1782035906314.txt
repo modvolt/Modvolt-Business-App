@@ -1,0 +1,105 @@
+2026-Jun-21 09:54:14.320739 Docker 29.5.2 with BuildKit and Buildx detected on deployment server (localhost).
+2026-Jun-21 09:54:14.336540 Starting deployment of modvolt--business--app:main-y12tsgvvv2ebndpi75kf3ia8 to localhost.
+2026-Jun-21 09:54:14.511950 Preparing container with helper image: ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-21 09:54:14.622714 [DEBUG] [CMD]: docker stop --time=30 o2s7mrjqkhs19ubx4dpazoqp
+2026-Jun-21 09:54:14.622714 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-21 09:54:14.627494 [DEBUG] Error response from daemon: No such container: o2s7mrjqkhs19ubx4dpazoqp
+2026-Jun-21 09:54:14.840360 [DEBUG] [CMD]: docker run -d --network 'coolify' --name o2s7mrjqkhs19ubx4dpazoqp  --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-21 09:54:14.840360 [DEBUG] b4e025a384eced8d91836ad26ec5a1950ec69a90919f652729080ac22881e3fd
+2026-Jun-21 09:54:16.577333 [DEBUG] [CMD]: docker exec o2s7mrjqkhs19ubx4dpazoqp bash -c 'GIT_SSH_COMMAND="ssh -o ConnectTimeout=30 -p 22 -o Port=22 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git ls-remote https://x-access-token:<REDACTED>@github.com/modvolt/Modvolt-Business-App.git refs/heads/main'
+2026-Jun-21 09:54:16.577333 [DEBUG] 9a0dd6b4803562dccd2bc4d65e4c03222f7d419e	refs/heads/main
+2026-Jun-21 09:54:16.840877 ----------------------------------------
+2026-Jun-21 09:54:16.852602 Importing modvolt/Modvolt-Business-App:main (commit sha 9a0dd6b4803562dccd2bc4d65e4c03222f7d419e) to /artifacts/o2s7mrjqkhs19ubx4dpazoqp.
+2026-Jun-21 09:54:17.036695 [DEBUG] [CMD]: docker exec o2s7mrjqkhs19ubx4dpazoqp bash -c 'git clone --depth=1 --recurse-submodules --shallow-submodules -b '\''main'\'' '\''https://x-access-token:<REDACTED>@github.com/modvolt/Modvolt-Business-App.git'\'' '\''/artifacts/o2s7mrjqkhs19ubx4dpazoqp'\'' && cd '\''/artifacts/o2s7mrjqkhs19ubx4dpazoqp'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git fetch --depth=1 origin '\''9a0dd6b4803562dccd2bc4d65e4c03222f7d419e'\'' && git -c advice.detachedHead=false checkout '\''9a0dd6b4803562dccd2bc4d65e4c03222f7d419e'\'' >/dev/null 2>&1 && cd '\''/artifacts/o2s7mrjqkhs19ubx4dpazoqp'\'' && if [ -f .gitmodules ]; then git submodule sync && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git submodule update --init --recursive --depth=1; fi && cd '\''/artifacts/o2s7mrjqkhs19ubx4dpazoqp'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git lfs pull'
+2026-Jun-21 09:54:17.036695 [DEBUG] Cloning into '/artifacts/o2s7mrjqkhs19ubx4dpazoqp'...
+2026-Jun-21 09:54:18.095121 [DEBUG] From https://github.com/modvolt/Modvolt-Business-App
+2026-Jun-21 09:<REDACTED>@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2
+2026-Jun-21 09:54:23.034577 [DEBUG] #5 resolve docker.io/library/node:22-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2 0.0s done
+2026-Jun-21 09:54:23.034577 [DEBUG] #5 DONE 0.0s
+2026-Jun-21 09:54:23.034577 [DEBUG] 
+2026-Jun-21 09:54:23.034577 [DEBUG] #6 [build 2/8] WORKDIR /app
+2026-Jun-21 09:54:23.034577 [DEBUG] #6 CACHED
+2026-Jun-21 09:54:23.034577 [DEBUG] 
+2026-Jun-21 09:54:23.034577 [DEBUG] #7 [internal] load build context
+2026-Jun-21 09:54:23.222651 [DEBUG] #7 transferring context: 782.70kB 0.0s done
+2026-Jun-21 09:54:23.222651 [DEBUG] #7 DONE 0.1s
+2026-Jun-21 09:54:23.222651 [DEBUG] 
+2026-Jun-21 09:54:23.222651 [DEBUG] #8 [build 3/8] RUN apt-get update && apt-get install -y --no-install-recommends     python3 make g++     && rm -rf /var/lib/apt/lists/*
+2026-Jun-21 09:54:23.222651 [DEBUG] #8 CACHED
+2026-Jun-21 09:54:23.222651 [DEBUG] 
+2026-Jun-21 09:54:23.222651 [DEBUG] #9 [build 4/8] COPY package.json package-lock.json* ./
+2026-Jun-21 09:54:23.222651 [DEBUG] #9 CACHED
+2026-Jun-21 09:54:23.222651 [DEBUG] 
+2026-Jun-21 09:54:23.222651 [DEBUG] #10 [build 5/8] RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+2026-Jun-21 09:55:35.792543 [DEBUG] #10 72.66 npm notice
+2026-Jun-21 09:55:35.792543 [DEBUG] #10 72.66 npm notice New major version of npm available! 10.9.8 -> 11.17.0
+2026-Jun-21 09:55:35.792543 [DEBUG] #10 72.66 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+2026-Jun-21 09:<REDACTED>@11.17.0
+2026-Jun-21 09:55:35.792543 [DEBUG] #10 72.66 npm notice
+2026-Jun-21 09:55:35.943041 [DEBUG] #10 72.66 npm error Exit handler never called!
+2026-Jun-21 09:55:35.943041 [DEBUG] #10 72.67 npm error This is an error with npm itself. Please report this error at:
+2026-Jun-21 09:55:35.943041 [DEBUG] #10 72.67 npm error   <https://github.com/npm/cli/issues>
+2026-Jun-21 09:<REDACTED>@11.17.0
+2026-Jun-21 09:56:47.869924 [DEBUG] 72.66 npm notice
+2026-Jun-21 09:56:47.869924 [DEBUG] 72.66 npm error Exit handler never called!
+2026-Jun-21 09:56:47.869924 [DEBUG] 72.67 npm error This is an error with npm itself. Please report this error at:
+2026-Jun-21 09:56:47.869924 [DEBUG] 72.67 npm error   <https://github.com/npm/cli/issues>
+2026-Jun-21 09:56:47.869924 [DEBUG] 72.67 npm error A complete log of this run can be found in: /root/.npm/_logs/2026-06-21T09_54_23_798Z-debug-0.log
+2026-Jun-21 09:56:47.869924 [DEBUG] 144.6 npm error Exit handler never called!
+2026-Jun-21 09:56:47.869924 [DEBUG] 144.6 npm error This is an error with npm itself. Please report this error at:
+2026-Jun-21 09:56:47.869924 [DEBUG] 144.6 npm error   <https://github.com/npm/cli/issues>
+2026-Jun-21 09:56:47.869924 [DEBUG] 144.6 npm error A complete log of this run can be found in: /root/.npm/_logs/2026-06-21T09_55_35_925Z-debug-0.log
+2026-Jun-21 09:56:47.869924 [DEBUG] ------
+2026-Jun-21 09:56:47.885475 [DEBUG] Dockerfile:23
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] --------------------
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] 21 |
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] 22 |     COPY package.json package-lock.json* ./
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] 23 | >>> RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] 24 |
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] 25 |     COPY . .
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] --------------------
+2026-Jun-21 09:56:47.885475 [DEBUG] 
+2026-Jun-21 09:56:47.885475 [DEBUG] failed to solve: process "/bin/sh -c npm ci --no-audit --no-fund || npm install --no-audit --no-fund" did not complete successfully: exit code: 1
+2026-Jun-21 09:56:47.904414 [DEBUG] exit status 1
+2026-Jun-21 09:56:47.964452 ========================================
+2026-Jun-21 09:56:47.974910 Deployment failed: Command execution failed (exit code 1): docker exec o2s7mrjqkhs19ubx4dpazoqp bash -c 'DOCKER_BUILDKIT=1 COOLIFY_BRANCH=main COOLIFY_RESOURCE_UUID=y12tsgvvv2ebndpi75kf3ia8  docker compose --env-file /artifacts/build-time.env --project-name y12tsgvvv2ebndpi75kf3ia8 --project-directory /artifacts/o2s7mrjqkhs19ubx4dpazoqp -f /artifacts/o2s7mrjqkhs19ubx4dpazoqp/docker-compose.yml build --pull --build-arg COOLIFY_FQDN --build-arg SERVICE_URL_APP --build-arg SERVICE_FQDN_APP --build-arg COOLIFY_BUILD_SECRETS_HASH=d7691a8c611a3d992e1094084c3dd5cf4dc9c93ce957f594399af66beee1c65e'
+2026-Jun-21 09:56:47.974910 Error: Dockerfile:23
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 --------------------
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 21 |
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 22 |     COPY package.json package-lock.json* ./
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 23 | >>> RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 24 |
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 25 |     COPY . .
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 --------------------
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 failed to solve: process "/bin/sh -c npm ci --no-audit --no-fund || npm install --no-audit --no-fund" did not complete successfully: exit code: 1
+2026-Jun-21 09:56:47.974910 
+2026-Jun-21 09:56:47.974910 exit status 1
+2026-Jun-21 09:56:47.986321 [DEBUG] Error type: App\Exceptions\DeploymentException
+2026-Jun-21 09:56:47.996830 [DEBUG] Error code: 0
+2026-Jun-21 09:56:48.008465 [DEBUG] Location: /var/www/html/app/Traits/ExecuteRemoteCommand.php:242
+2026-Jun-21 09:56:48.017722 [DEBUG] Stack trace (first 5 lines):
+2026-Jun-21 09:56:48.029524 [DEBUG] #0 /var/www/html/app/Traits/ExecuteRemoteCommand.php(106): App\Jobs\ApplicationDeploymentJob->executeCommandWithProcess()
+2026-Jun-21 09:56:48.041620 [DEBUG] #1 /var/www/html/vendor/laravel/framework/src/Illuminate/Collections/Traits/EnumeratesValues.php(275): App\Jobs\ApplicationDeploymentJob->{closure:App\Traits\ExecuteRemoteCommand::execute_remote_command():72}()
+2026-Jun-21 09:56:48.051122 [DEBUG] #2 /var/www/html/app/Traits/ExecuteRemoteCommand.php(72): Illuminate\Support\Collection->each()
+2026-Jun-21 09:56:48.061526 [DEBUG] #3 /var/www/html/app/Jobs/ApplicationDeploymentJob.php(772): App\Jobs\ApplicationDeploymentJob->execute_remote_command()
+2026-Jun-21 09:56:48.075201 [DEBUG] #4 /var/www/html/app/Jobs/ApplicationDeploymentJob.php(496): App\Jobs\ApplicationDeploymentJob->deploy_docker_compose_buildpack()
+2026-Jun-21 09:56:48.087713 ========================================
+2026-Jun-21 09:56:48.438542 Gracefully shutting down build container: o2s7mrjqkhs19ubx4dpazoqp
+2026-Jun-21 09:56:48.538287 [DEBUG] [CMD]: docker stop --time=30 o2s7mrjqkhs19ubx4dpazoqp
+2026-Jun-21 09:56:48.538287 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-21 09:56:48.684787 [DEBUG] o2s7mrjqkhs19ubx4dpazoqp
