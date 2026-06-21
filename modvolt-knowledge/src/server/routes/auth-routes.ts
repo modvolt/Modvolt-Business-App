@@ -1,4 +1,5 @@
 import { createRouter } from "../lib/async-router.js";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -9,12 +10,26 @@ import { audit } from "../lib/audit.js";
 
 export const authRouter = createRouter();
 
+// Rate limit pro přihlášení: max 10 pokusů za 15 minut na IP.
+// Počítá jen neúspěšné pokusy (skipSuccessfulRequests).
+// Funguje za reverzní proxy díky app.set("trust proxy", 1) v app.ts.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minut
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: {
+    error: "Příliš mnoho pokusů o přihlášení. Zkuste to znovu za 15 minut.",
+  },
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", loginLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Neplatné přihlašovací údaje." });

@@ -66,13 +66,22 @@ export const env = {
     enabled: bool("OPENAI_ENABLED", false),
     imageAnalysisEnabled: bool("OPENAI_IMAGE_ANALYSIS_ENABLED", false),
     maxContextChunks: num("OPENAI_MAX_CONTEXT_CHUNKS", 8),
-    maxUploadMb: num("OPENAI_MAX_UPLOAD_MB", 50),
+    maxUploadMb: num("OPENAI_MAX_UPLOAD_MB", 15),
     requestTimeoutMs: num("OPENAI_REQUEST_TIMEOUT_MS", 60000),
   },
 
   image: {
     maxUploadMb: num("MAX_IMAGE_UPLOAD_MB", 15),
+    // STRIP_IMAGE_EXIF je zachován pro zpětnou kompatibilitu v konfiguraci,
+    // ale nemá efekt — EXIF je vždy odstraněn (viz image-processing.ts).
     stripExif: bool("STRIP_IMAGE_EXIF", true),
+  },
+
+  upload: {
+    // Maximální počet souborů v jedné dávce (hromadný import).
+    maxBatchFiles: num("MAX_BATCH_FILES", 10),
+    // Maximální velikost ZIP archivu v MB.
+    maxZipMb: num("MAX_ZIP_MB", 100),
   },
 
   webSearch: {

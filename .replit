@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "Modvolt Knowledge"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Verify Knowledge"
+
 [[workflows.workflow]]
 name = "Modvolt Knowledge"
 author = "agent"
@@ -31,6 +35,17 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow]]
+name = "Verify Knowledge"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd modvolt-knowledge && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build && echo 'ALL CHECKS PASSED'"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"

@@ -1,0 +1,177 @@
+Pracuj v repozitáři modvolt/Modvolt-Business-App. Cílem je ověřit a opravit produkční integritu aplikace modvolt-knowledge tak, aby šla bezpečně nasadit přes Coolify na Hetzner jako interní znalostní databáze Modvolt.
+
+DŮLEŽITÉ:
+- Neodstraňuj funkce aplikace.
+- Nezaváděj závislost na Replitu. Aplikace musí zůstat přenositelná přes Docker/Coolify.
+- Nepřepisuj architekturu zbytečně. Oprav hlavně build, validaci, bezpečnost a produkční nasazení.
+- Po každé větší změně spusť validační příkazy a v závěru uveď přesné výsledky.
+- Pokud některý příkaz selže, nejdřív oprav příčinu a spusť ho znovu. Netvrď, že je hotovo, dokud build/test/typecheck neprojdou.
+
+KONTEXT:
+Aplikace znalostní databáze je v podadresáři:
+modvolt-knowledge/
+
+Root workspace build přes pnpm momentálně nemusí zahrnovat modvolt-knowledge. Samotná aplikace má vlastní npm skripty:
+cd modvolt-knowledge
+npm run typecheck
+npm test
+npm run build
+
+ÚKOL 1 — ověř build a testy:
+1. Spusť:
+   cd modvolt-knowledge
+   npm ci
+   npm run typecheck
+   npm test
+   npm run build
+2. Pokud cokoliv selže, oprav chybu a spusť znovu.
+3. Ověř, že vznikne:
+   modvolt-knowledge/dist/public
+   modvolt-knowledge/dist/server/index.js
+
+ÚKOL 2 — přidej jednoznačné validační skripty:
+Do root package.json přidej skripty, které ověřují i modvolt-knowledge, například:
+- build:knowledge
+- typecheck:knowledge
+- test:knowledge
+- verify:knowledge
+- verify
+
+Důležité: zachovej současný pnpm workspace, ale pro modvolt-knowledge použij příkazy kompatibilní s jeho package-lock/npm setupem, pokud jej nebudeš bezpečně převádět celý na pnpm. Preferuj nejmenší bezpečnou změnu.
+
+Po úpravě musí jít z rootu spustit:
+pnpm run verify:knowledge
+
+Tento příkaz musí uvnitř provést:
+cd modvolt-knowledge && npm ci && npm run typecheck && npm test && npm run build
+
+ÚKOL 3 — oprav Replit workflow:
+V .replit ponech vývojový workflow, ale přidej nebo uprav tak, aby existoval jasný workflow pro ověření knowledge app:
+- npm install / npm ci v modvolt-knowledge
+- npm run typecheck
+- npm test
+- npm run build
+
+Nesmí to rozbít běžné spuštění dev serveru:
+cd modvolt-knowledge && npm run dev
+
+ÚKOL 4 — Docker hardening:
+Uprav modvolt-knowledge/Dockerfile:
+1. Runtime kontejner nesmí běžet jako root.
+2. Přidej neprivilegovaného uživatele, např. node nebo appuser.
+3. Zajisti správné vlastnictví kopírovaných souborů.
+4. Zachovej healthcheck a CMD:
+   node dist/server/index.js
+5. Zachovej automatické migrace při startu, protože src/server/index.ts je spouští před servírováním provozu.
+
+Ověř:
+docker build -t modvolt-knowledge-test ./modvolt-knowledge
+
+Pokud Docker není v Replitu dostupný, uveď to přesně a ověř alespoň běžný npm build.
+
+ÚKOL 5 — sjednoť dokumentaci migrací:
+README nyní nesmí tvrdit dvě různé věci.
+Kód spouští migrace automaticky při startu serveru přes runMigrations().
+Uprav README tak, aby bylo jasné:
+- migrace se v produkci aplikují automaticky při startu kontejneru,
+- db:seed-admin je samostatný bootstrap krok, pokud ještě neexistuje admin,
+- ruční db:migrate je jen volitelná diagnostika / lokální vývoj.
+
+ÚKOL 6 — bezpečnost loginu:
+Přidej rate limit na POST /api/auth/login.
+Použij express-rate-limit nebo vlastní jednoduchý middleware.
+Požadavek:
+- limit cca 5 až 10 pokusů za 15 minut na IP,
+- obecná chybová hláška,
+- nesmí prozrazovat, zda existuje e-mail,
+- musí fungovat za reverse proxy s app.set("trust proxy", 1).
+
+Přidej závislost do modvolt-knowledge/package.json, pokud použiješ knihovnu.
+Spusť znovu:
+npm run typecheck
+npm test
+npm run build
+
+ÚKOL 7 — HTTP hardening:
+Přidej helmet do Express aplikace.
+Minimálně:
+- helmet()
+- v produkci HSTS,
+- nevypínat funkčnost Vite dev serveru.
+Přidej jednoduchou Origin/Referer ochranu pro mutační API požadavky, nebo CSRF token řešení. Preferuj jednodušší bezpečné řešení:
+- GET/HEAD/OPTIONS neblokovat,
+- POST/PATCH/PUT/DELETE povolit jen bez Origin v lokálním/dev režimu, nebo pokud Origin odpovídá APP_BASE_URL / hostu aplikace,
+- v produkci odmítnout cizí Origin.
+
+ÚKOL 8 — databázová integrita:
+Zkontroluj schema.ts a existující drizzle migrace.
+Doplň bezpečné FK vazby a/nebo explicitní cleanup tak, aby:
+- smazání dokumentu odstranilo jeho chunks, embeddings, versions, tag links, indexing jobs,
+- reindex před smazáním chunků odstranil i odpovídající embeddings, nebo FK cascade zajistí cleanup,
+- nevznikaly osiřelé řádky v document_embeddings.
+
+Preferované řešení:
+- doplnit FK vazby s ON DELETE CASCADE v Drizzle schématu,
+- vygenerovat novou migraci,
+- pro stávající databáze přidat migraci opatrně tak, aby nejdříve odstranila orphan rows a potom přidala constraints.
+
+Ověř migrace:
+npm run db:generate
+npm run typecheck
+npm test
+npm run build
+
+ÚKOL 9 — upload limity a paměť:
+Zkontroluj document-routes.ts:
+- upload používá multer.memoryStorage
+- OPENAI_MAX_UPLOAD_MB default je 50
+- batch limit je 50 souborů
+- ZIP limit je MAX_ENTRY_BYTES * 5
+
+Uprav konfiguraci tak, aby produkční defaulty byly bezpečnější pro 4GB VPS:
+- OPENAI_MAX_UPLOAD_MB default max 15 nebo 20 MB
+- MAX_BATCH_FILES jako env proměnná, default 10
+- ZIP limit jako env proměnná, default max 100 MB
+- jasné chybové hlášky při překročení limitů
+
+Z dlouhodobého hlediska preferuj disk/streaming, ale pro tuto verzi stačí snížit defaulty a udělat limity konfigurovatelné.
+
+ÚKOL 10 — health endpoint:
+GET /health nyní vrací dost detailů o databázi/S3/OpenAI/web search.
+Uprav tak, aby:
+- veřejně vracel jen základní status/version/time,
+- detailní checks byly dostupné jen v interním režimu nebo admin API,
+- healthcheck pro Docker/Coolify pořád fungoval.
+
+ÚKOL 11 — EXIF konfigurace:
+image-processing.ts vždy stripuje metadata, ale vrací exifRemoved podle env.image.stripExif.
+Oprav to tak, aby hodnota v odpovědi odpovídala realitě.
+Preferované:
+- vždy stripovat EXIF kvůli bezpečnosti,
+- odstranit zavádějící možnost STRIP_IMAGE_EXIF=false z dokumentace, nebo ji jasně označit jako ignorovanou/legacy,
+- exifRemoved vracet vždy true.
+
+ÚKOL 12 — smoke test runtime:
+Připrav jednoduchý smoke test / návod:
+- nastavit DATABASE_URL na PostgreSQL s pgvector,
+- NODE_ENV=production,
+- SESSION_SECRET dlouhý náhodný,
+- OPENAI_ENABLED=false,
+- WEB_SEARCH_ENABLED=false,
+- S3 proměnné buď vyplněné, nebo jasně zdokumentovat dopad,
+- spustit npm start po buildu,
+- ověřit GET /health,
+- ověřit login flow po db:seed-admin.
+
+VÝSTUP:
+Na konci mi napiš:
+1. Seznam změněných souborů.
+2. Přesné příkazy, které jsi spustil.
+3. Výsledek každého příkazu.
+4. Zda prošlo:
+   - npm ci
+   - npm run typecheck
+   - npm test
+   - npm run build
+   - případně docker build
+5. Krátké instrukce pro nasazení v Coolify na doménu https://info.modvoltapp.cz.

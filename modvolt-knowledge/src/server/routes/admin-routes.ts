@@ -408,3 +408,12 @@ adminRouter.post("/indexing-jobs/retry", async (req, res) => {
   await audit(req, "reindex", "document", parsed.data.documentId);
   res.json({ ok: true });
 });
+
+// Interní systémový health check (vyžaduje admin). Vrací detaily o stavu
+// infrastruktury (DB, S3, OpenAI, web search). Veřejný /health vrací jen
+// status/version/time bez odhalení vnitřního stavu.
+adminRouter.get("/system-health", async (_req, res) => {
+  const { collectSystemHealth } = await import("./health-routes.js");
+  const info = await collectSystemHealth();
+  res.status(info.status === "ok" ? 200 : 503).json(info);
+});

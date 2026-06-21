@@ -50,7 +50,10 @@ export const documents = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     title: text("title").notNull(),
     description: text("description"),
-    categoryId: uuid("category_id"),
+    // SET NULL: při smazání kategorie se dokumenty neodstraní, pouze ztratí vazbu.
+    categoryId: uuid("category_id").references(() => documentCategories.id, {
+      onDelete: "set null",
+    }),
     documentType: text("document_type").notNull().default("other"),
     sourceName: text("source_name"),
     sourceUrl: text("source_url"),
@@ -66,7 +69,10 @@ export const documents = pgTable(
     objectPath: text("object_path").notNull(),
     textExtracted: boolean("text_extracted").notNull().default(false),
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
-    uploadedByUserId: uuid("uploaded_by_user_id"),
+    // SET NULL: při smazání uživatele zůstane dokument, jen přijde o autora.
+    uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -80,14 +86,19 @@ export const documents = pgTable(
 
 export const documentVersions = pgTable("document_versions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  documentId: uuid("document_id").notNull(),
+  // CASCADE: smazání dokumentu odstraní všechny jeho verze.
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
   versionLabel: text("version_label").notNull(),
   originalFileName: text("original_file_name").notNull(),
   objectPath: text("object_path").notNull(),
   sha256Hash: text("sha256_hash").notNull(),
   sizeBytes: integer("size_bytes").notNull().default(0),
   changeNote: text("change_note"),
-  uploadedByUserId: uuid("uploaded_by_user_id"),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -95,7 +106,10 @@ export const documentChunks = pgTable(
   "document_chunks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentId: uuid("document_id").notNull(),
+    // CASCADE: smazání dokumentu odstraní všechny jeho chunky (a přes ně embeddingy).
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
     documentVersionId: uuid("document_version_id"),
     chunkIndex: integer("chunk_index").notNull().default(0),
     pageNumber: integer("page_number"),
@@ -117,7 +131,10 @@ export const documentEmbeddings = pgTable(
   "document_embeddings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    chunkId: uuid("chunk_id").notNull(),
+    // CASCADE: smazání chunku (při reindexaci nebo smazání dokumentu) odstraní embedding.
+    chunkId: uuid("chunk_id")
+      .notNull()
+      .references(() => documentChunks.id, { onDelete: "cascade" }),
     embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
     embeddingModel: text("embedding_model").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -142,8 +159,13 @@ export const documentTags = pgTable("document_tags", {
 export const documentTagLinks = pgTable(
   "document_tag_links",
   {
-    documentId: uuid("document_id").notNull(),
-    tagId: uuid("tag_id").notNull(),
+    // CASCADE: smazání dokumentu nebo štítku odstraní příslušné vazby.
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => documentTags.id, { onDelete: "cascade" }),
   },
   (t) => ({
     pk: primaryKey({ columns: [t.documentId, t.tagId] }),
@@ -172,7 +194,10 @@ export const searchQueries = pgTable("search_queries", {
 
 export const chatSessions = pgTable("chat_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
+  // CASCADE: smazání uživatele odstraní jeho chat sessions (a přes ně zprávy).
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   title: text("title").notNull().default("Nová konverzace"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -180,7 +205,10 @@ export const chatSessions = pgTable("chat_sessions", {
 
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
-  sessionId: uuid("session_id").notNull(),
+  // CASCADE: smazání session odstraní všechny zprávy v ní.
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: "cascade" }),
   role: text("role").notNull(), // user | assistant | system
   content: text("content").notNull(),
   citationsJson: jsonb("citations_json"),
@@ -244,7 +272,10 @@ export const promptVersions = pgTable("prompt_versions", {
 
 export const indexingJobs = pgTable("indexing_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
-  documentId: uuid("document_id").notNull(),
+  // CASCADE: smazání dokumentu odstraní i jeho indexovací joby.
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("queued"),
   jobType: text("job_type").notNull().default("reindex"),
   attempts: integer("attempts").notNull().default(0),
@@ -266,7 +297,10 @@ export const webSearchCache = pgTable("web_search_cache", {
 
 export const webCitations = pgTable("web_citations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  chatMessageId: uuid("chat_message_id").notNull(),
+  // CASCADE: smazání zprávy odstraní web citace v ní.
+  chatMessageId: uuid("chat_message_id")
+    .notNull()
+    .references(() => chatMessages.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   url: text("url").notNull(),
   domain: text("domain").notNull(),

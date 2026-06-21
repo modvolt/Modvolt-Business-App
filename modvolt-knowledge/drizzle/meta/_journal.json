@@ -29,6 +29,13 @@
       "when": 1781984910603,
       "tag": "0003_loose_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782040068149,
+      "tag": "0004_classy_pestilence",
+      "breakpoints": true
     }
   ]
 }

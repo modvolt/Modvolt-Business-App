@@ -14,26 +14,60 @@ AI answers must only count a citation toward "sufficiently sourced" if it maps t
 **How to apply:** Any change to the chat answer schema/validation must keep filtering citations against the retrieved set BEFORE computing `hasAnyCitation`.
 
 ## Frontend filter values must match canonical enums
-Search/filter UI controls (e.g. document-type chips) must send the exact `DocumentType` enum values from `src/shared/types.ts` (`standard`, `norm`, `internal_procedure`, …) — not invented labels like `internal`/`csn_standard`. Mismatched keys silently yield empty filter results because the SQL `ANY` filter never matches.
-**Why:** A review caught the search page sending non-canonical type keys; typecheck does not catch this since the filter param is a plain string.
-**How to apply:** When adding any filter chip/select, source its option keys from the shared enum, and keep the upload form and search filters using the same canonical set.
+Search/filter UI controls (e.g. document-type chips) must send the exact `DocumentType` enum values from `src/shared/types.ts` (`standard`, `norm`, `internal_procedure`, …) — not invented labels. Mismatched keys silently yield empty filter results.
+**Why:** A review caught the search page sending non-canonical type keys; typecheck does not catch this.
+**How to apply:** When adding any filter chip/select, source its option keys from the shared enum.
 
 ## Admin-only UI surface
-Categories, tags, indexing, audit, settings, and users pages are admin-gated in BOTH `Layout` nav (`show: isAdmin`) and `App` rendering (`page === ... && isAdmin`). Backend already enforces auth server-side, but the nav/route gating must stay consistent with it.
-**Why:** Plan required admin gating; leaving categories/tags visible to all was flagged as a requirement/consistency miss.
+Categories, tags, indexing, audit, settings, and users pages are admin-gated in BOTH `Layout` nav and `App` rendering. Backend enforces auth server-side too; both must stay consistent.
+**Why:** Plan required admin gating; leaving categories/tags visible to all was flagged as a requirement miss.
 **How to apply:** Gate a page in both Layout visibility and App routing together; never gate only one.
 
 ## ČSN hard-lock keyword matching must be Unicode-aware
-The `csn_only` hard-lock keyword patterns (`resolveSourceMode`) must NOT use JavaScript `\b` next to Czech-diacritic letters (ě, í, č, Č, ů, …). JS `\b` is ASCII-only, so `\buzemnění\b`, `\bČSN\b`, etc. silently never match — leaving norm queries un-locked and able to leak to web search. Use Unicode-aware boundaries: `(?<![\p{L}\p{N}])…(?![\p{L}\p{N}])` with the `u` flag.
-**Why:** End-to-end verification found "uzemnění a pospojování" (and most accented norm keywords) were NOT locked; they only appeared to work when the numeric `33 2000` ČSN-series pattern happened to catch the query.
-**How to apply:** When adding/editing any ČSN lock keyword, build it via the Unicode-boundary helper, never a raw `\b` literal. Keep only-leading-boundary patterns (e.g. prefix matches like `elektroinstalac`, `IEC\s*\d`) without a trailing boundary.
+`csn_only` hard-lock patterns must NOT use JS `\b` next to Czech-diacritic letters (ě, í, č, Č, ů, …). JS `\b` is ASCII-only and silently never matches accented characters.
+**Why:** Queries like "uzemnění a pospojování" were not locked, enabling web search on norm queries.
+**How to apply:** Use Unicode-aware boundaries (`(?<![\p{L}\p{N}])…(?![\p{L}\p{N}])` with `u` flag) for any pattern ending in a diacritic character.
 
 ## Dedup + versioning integrity
-`documents.sha256_hash` has a DB-level UNIQUE index (not just a pre-check). Insert/replace paths must catch PG unique violation (code `23505`) and map to a 409 duplicate, in addition to the `findDocumentByHash` pre-check. `replaceDocument` must wrap version-archive insert + chunk `isCurrent=false` demotion + documents update in ONE `db.transaction`. S3 upload happens before the transaction (orphan on failure is harmless since path is hash-derived).
+`documents.sha256_hash` has a DB-level UNIQUE index. Insert/replace must catch PG unique violation (code `23505`) and map to 409 duplicate, in addition to the `findDocumentByHash` pre-check. `replaceDocument` must wrap version-archive + chunk demotion + document update in ONE `db.transaction`.
 **Why:** Pre-check alone races under concurrent uploads; multi-statement versioning without a transaction can leave inconsistent state.
 **How to apply:** Keep the unique index in lockstep with a migration; never split the versioning mutations out of the transaction.
 
-## ČSN lock regex: trailing \b breaks on diacritic-ending words
-Several `CSN_LOCK_PATTERNS` in `src/server/search/source-mode.ts` end a Czech word with a trailing `\b` (e.g. `/\bjištění\b/`, `/\bdimenzování (vodičů|kabelů)\b/`, `/\bjisti(č|če|čů|čem)\b/`). JS `\b` (no `u` flag) is an ASCII boundary, so a word ending in `í/ů/č` followed by space or end-of-string yields NO boundary and the pattern never fires. So "Dimenzování vodičů a jištění" does NOT lock to csn_only.
-**Why:** Discovered while writing the source-lock tests; queries that clearly concern norms slip through to web-allowed modes.
-**How to apply:** When testing the lock, pick queries that match patterns without a trailing-`\b`-after-diacritic problem (ČSN/norma/RCD/IEC/EN/rozvaděč/elektroinstalac all work). A proper fix = drop the trailing `\b` or add the `u` flag with Unicode-aware boundaries; out of scope for the test task.
+## Migration rules
+- Migrations do NOT auto-apply on server start — must be run manually (`npm run db:migrate`) after each deployment.
+- `db:seed-admin` is one-time bootstrap; safe to re-run (idempotent — won't overwrite existing admin).
+- Migration 0004 added FK CASCADE/SET NULL. It includes orphan-row cleanup at the top to avoid ALTER TABLE failures on existing data.
+- When adding future migrations with FK constraints: always prepend orphan cleanup (DELETE orphans for CASCADE, UPDATE SET NULL for nullable FKs) before the ALTER TABLE statements.
+
+## FK cascade chain (after migration 0004)
+- DELETE document → cascades to: documentChunks, documentVersions, documentTagLinks, indexingJobs
+- DELETE documentChunk → cascades to: documentEmbeddings
+- DELETE chatSession → cascades to: chatMessages → webCitations
+- DELETE user → cascades to: chatSessions; documents/documentVersions.uploadedByUserId SET NULL
+- DELETE documentCategory → documents.categoryId SET NULL
+- documentTagLinks.tagId → CASCADE (deleting a tag removes its links)
+
+## Security layers (production hardening done)
+- Helmet: HTTP security headers in app.ts (HSTS only in prod).
+- Rate limit: POST /login max 10 failed attempts / 15 min / IP (`skipSuccessfulRequests: true`).
+- Origin guard: blocks cross-origin POST/PUT/PATCH/DELETE in prod or when APP_BASE_URL is set. No-Origin requests (curl, server-to-server) are allowed.
+- /health returns only `{status, version, time}`. Full infra status on GET /api/admin/system-health (requires admin session).
+
+## Upload limits (env-configurable)
+- OPENAI_MAX_UPLOAD_MB default: 15 (was 50 before audit)
+- MAX_BATCH_FILES default: 10 (was 50 hardcoded in document-routes.ts)
+- MAX_ZIP_MB default: 100
+
+## EXIF handling
+- sharp without .withMetadata() never writes EXIF. `exifRemoved` is always `true` regardless of STRIP_IMAGE_EXIF env var (legacy flag kept for config compatibility only).
+
+## Docker non-root
+- Runtime stage: all COPY use `--chown=node:node`, `USER node` before CMD (uid 1000, built into node:24-slim).
+- Import session temp files go to `os.tmpdir()` (/tmp), writable by the node user — no extra volume needed.
+
+## Test / verify commands
+- `npm test` — node:test runner, tsx, 49 tests, no external services needed
+- `npm run typecheck` — tsc --noEmit
+- `npm run build` — vite (client) + esbuild (server)
+- `npm run verify` — ci + typecheck + test + build (full gate)
+- From monorepo root: `pnpm run verify:knowledge`

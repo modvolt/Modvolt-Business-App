@@ -30,12 +30,15 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
     resolveWithObject: true,
   });
 
+  // EXIF (vč. GPS souřadnic) je VŽDY odstraněn — sharp bez .withMetadata()
+  // metadata nezapíše. Hodnota env.image.stripExif se ignoruje (legacy flag),
+  // vždy vracíme true aby odpověď odpovídala realitě.
   return {
     buffer: output.data,
     width: output.info.width,
     height: output.info.height,
     mimeType: "image/jpeg",
-    exifRemoved: env.image.stripExif,
+    exifRemoved: true,
   };
 }
 

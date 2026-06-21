@@ -58,17 +58,23 @@ FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Hotové produkční node_modules + manifesty (žádný npm install už neběží)
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/package-lock.json* ./
+# Hotové produkční node_modules + manifesty (žádný npm install už neběží).
+# --chown=node:node: soubory patří neprivilegovanému uživateli node (uid 1000),
+# který je v node:24-slim předpřipravený.
+COPY --chown=node:node --from=build /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/package.json ./package.json
+COPY --chown=node:node --from=build /app/package-lock.json* ./
 
 # Zkompilovaný backend, postavený frontend, migrace a zdroj pro tsx skripty
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/src ./src
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/drizzle ./drizzle
+COPY --chown=node:node --from=build /app/src ./src
+COPY --chown=node:node --from=build /app/tsconfig.json ./tsconfig.json
+COPY --chown=node:node --from=build /app/drizzle.config.ts ./drizzle.config.ts
+
+# Neprivilegovaný uživatel: kontejner NESMÍ běžet jako root.
+# node user (uid 1000) může zapisovat do /tmp (session import temp files).
+USER node
 
 # Port je vždy z env (Coolify / reverzní proxy)
 ENV PORT=3000

@@ -6,12 +6,18 @@ import {
   isVisionUsable,
   isWebSearchUsable,
   isS3Configured,
+  APP_VERSION,
 } from "../env.js";
-import { APP_VERSION } from "../env.js";
 import { webSearchAvailable } from "../search/web-search-service.js";
 
 export const healthRouter = createRouter();
 
+/**
+ * Veřejný health endpoint — vrací jen minimum (status/version/time).
+ * Neodhaluje vnitřní stav infrastruktury (DB, S3, OpenAI).
+ * Používá ho Docker/Coolify healthcheck i monitoring.
+ * Detailní checks jsou dostupné na GET /api/admin/system-health (vyžaduje admin).
+ */
 healthRouter.get("/health", async (_req, res) => {
   let dbOk = false;
   try {
@@ -21,11 +27,29 @@ healthRouter.get("/health", async (_req, res) => {
     dbOk = false;
   }
 
-  const s3Ok = isS3Configured() ? await checkS3Health() : false;
-
   const status = dbOk ? "ok" : "degraded";
   res.status(dbOk ? 200 : 503).json({
     status,
+    version: APP_VERSION,
+    time: new Date().toISOString(),
+  });
+});
+
+/**
+ * Interní health export — volá admin router pro GET /api/admin/system-health.
+ * Odděleno, aby health-routes.ts zůstal bez session/auth závislostí.
+ */
+export async function collectSystemHealth() {
+  let dbOk = false;
+  try {
+    await pool.query("SELECT 1");
+    dbOk = true;
+  } catch {
+    dbOk = false;
+  }
+  const s3Ok = isS3Configured() ? await checkS3Health() : false;
+  return {
+    status: dbOk ? "ok" : "degraded",
     version: APP_VERSION,
     time: new Date().toISOString(),
     checks: {
@@ -36,5 +60,5 @@ healthRouter.get("/health", async (_req, res) => {
       visionEnabled: isVisionUsable(),
       webSearchEnabled: isWebSearchUsable() && webSearchAvailable(),
     },
-  });
-});
+  };
+}

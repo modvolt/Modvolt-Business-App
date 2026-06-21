@@ -61,8 +61,9 @@ const upload = multer({
   limits: { fileSize: env.openai.maxUploadMb * 1024 * 1024 },
 });
 
-// Hromadný import: více souborů najednou (limit počtu kvůli paměti).
-const MAX_BATCH_FILES = 50;
+// Hromadný import: počet souborů a velikost konfigurovatelné přes env.
+// Výchozí hodnoty jsou bezpečné pro 4GB VPS (viz env.ts).
+const MAX_BATCH_FILES = env.upload.maxBatchFiles;
 const MAX_ENTRY_BYTES = env.openai.maxUploadMb * 1024 * 1024;
 const batchUpload = multer({
   storage: multer.memoryStorage(),
@@ -72,12 +73,11 @@ const batchUpload = multer({
   },
 });
 
-// ZIP archiv může být výrazně větší než jeden dokument (sbalí celou složku),
-// proto vlastní, velkorysejší limit. Jednotlivé položky uvnitř se kontrolují
-// proti MAX_ENTRY_BYTES až při rozbalení.
+// ZIP archiv: konfigurovatelný limit (MAX_ZIP_MB), výchozí 100 MB.
+// Jednotlivé položky uvnitř ZIP se kontrolují proti MAX_ENTRY_BYTES.
 const zipUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_ENTRY_BYTES * 5 },
+  limits: { fileSize: env.upload.maxZipMb * 1024 * 1024 },
 });
 
 documentRouter.use(requireAuth);
