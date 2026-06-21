@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { env } from "../env.js";
 import { seedDefaults } from "./seed-defaults.js";
+import { seedAdmin } from "./seed-admin.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -53,6 +54,9 @@ export async function runMigrations(): Promise<void> {
 
     console.log("Seeduji výchozí kategorie a nastavení...");
     await seedDefaults(pool);
+
+    console.log("Zakládám admin účet (pokud chybí)...");
+    await seedAdmin(db);
 
     console.log("Migrace dokončeny.");
   } finally {

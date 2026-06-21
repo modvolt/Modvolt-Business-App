@@ -1,47 +1,66 @@
 import bcrypt from "bcryptjs";
-import { pool, db } from "./index.js";
-import { users } from "./schema.js";
 import { eq } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { users } from "./schema.js";
 import { env } from "../env.js";
+import { logger } from "../lib/logger.js";
 
-async function main() {
+/**
+ * Založí (nebo volitelně aktualizuje) admin účet z ADMIN_EMAIL / ADMIN_PASSWORD.
+ * Volá se automaticky při startu serveru (viz runMigrations) i z CLI.
+ *
+ * - Bez force: admina vytvoří jen pokud ještě neexistuje. Heslo existujícího
+ *   účtu se NEPŘEPISUJE, aby restart serveru nezrušil změnu hesla provedenou
+ *   v aplikaci.
+ * - S force (CLI `db:seed-admin`): vždy přepíše heslo/roli existujícího účtu
+ *   na hodnoty z env (reset admina).
+ */
+export async function seedAdmin(
+  db: NodePgDatabase<any>,
+  opts: { force?: boolean } = {},
+): Promise<void> {
   const { email, password, name } = env.admin;
   if (!email || !password) {
-    console.error(
-      "ADMIN_EMAIL a ADMIN_PASSWORD musí být nastaveny v env pro vytvoření admina.",
+    logger.warn(
+      "ADMIN_EMAIL/ADMIN_PASSWORD nejsou nastaveny — admin účet se nevytvoří.",
     );
-    process.exit(1);
+    return;
   }
 
+  const normalizedEmail = email.toLowerCase();
   const existing = await db
     .select()
     .from(users)
-    .where(eq(users.email, email.toLowerCase()))
+    .where(eq(users.email, normalizedEmail))
     .limit(1);
 
-  const passwordHash = await bcrypt.hash(password, 12);
-
   if (existing.length > 0) {
+    if (!opts.force) {
+      logger.info(`Admin účet už existuje: ${normalizedEmail} (ponechávám).`);
+      return;
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
     await db
       .update(users)
-      .set({ passwordHash, role: "admin", isActive: true, name, updatedAt: new Date() })
+      .set({
+        passwordHash,
+        role: "admin",
+        isActive: true,
+        name,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, existing[0].id));
-    console.log(`Admin účet aktualizován: ${email}`);
-  } else {
-    await db.insert(users).values({
-      name,
-      email: email.toLowerCase(),
-      passwordHash,
-      role: "admin",
-      isActive: true,
-    });
-    console.log(`Admin účet vytvořen: ${email}`);
+    logger.info(`Admin účet aktualizován: ${normalizedEmail}`);
+    return;
   }
 
-  await pool.end();
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.insert(users).values({
+    name,
+    email: normalizedEmail,
+    passwordHash,
+    role: "admin",
+    isActive: true,
+  });
+  logger.info(`Admin účet vytvořen: ${normalizedEmail}`);
 }
-
-main().catch((err) => {
-  console.error("Seed admina selhal:", err);
-  process.exit(1);
-});

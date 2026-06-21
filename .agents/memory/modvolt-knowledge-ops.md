@@ -44,6 +44,11 @@ There are two compose files: `/docker-compose.yml` (repo root) and `/modvolt-kno
 **Why:** Hours were lost editing the subdir compose while Coolify kept reading the stale root compose (which had `db` behind a `with-db` profile so it never started, and never set `DATABASE_URL`). Same error persisted no matter what the subdir file said.
 **How to apply:** For any Coolify/deploy change, edit the ROOT `/docker-compose.yml`. The `db` service there must have NO `profiles:` (so it starts by default). Keep both files in sync if you must keep both; better, treat the root file as the single source of truth for deployment.
 
+## Admin user is seeded at startup (create-if-missing), not by seedDefaults
+`seedDefaults()` only seeds categories + app_settings — it does NOT create the admin user. The admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD` is created by `seedAdmin(db)`, now called inside `runMigrations()` after `seedDefaults()` on every boot. Without this, a fresh deploy has zero users and every login returns 401 even with correct env credentials.
+**Why:** On Coolify the standalone `db:seed-admin` CLI never runs, so the DB had no admin → login always failed. Login is checked against the DB (bcrypt), not against env directly.
+**How to apply:** `seedAdmin(db)` (shared fn in `db/seed-admin.ts`) is create-if-missing by default — it does NOT overwrite an existing admin's password on restart (so in-app password changes survive). The CLI `npm run db:seed-admin` (`db/seed-admin-cli.ts`) calls `seedAdmin(db, { force: true })` to force-reset the admin to env values. To rotate the admin password via env, either run the CLI in the container or temporarily change the email (new email → new create).
+
 ## Docker build itself is clean — `npm ci` failures are server-side
 The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base. So when Coolify/Hetzner deploys fail at `npm ci`, suspect: (1) Replit proxy URLs in lockfile [see above], (2) ENOSPC disk full on Hetzner, (3) npm registry unreachable. The install step dumps npm debug-log + `df -h` on failure. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 with a genuine "Exit handler never called!" bug. No build toolchain needed (no `apt-get python3 make g++`).
 
