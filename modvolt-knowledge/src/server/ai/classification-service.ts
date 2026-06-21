@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getOpenAi } from "./openai-client.js";
-import { env, isOpenAiUsable } from "../env.js";
+import { env, isChatUsable } from "../env.js";
 import { DOCUMENT_TYPES } from "../../shared/types.js";
 import type { DocumentType } from "../../shared/types.js";
 import { logger } from "../lib/logger.js";
@@ -33,9 +33,9 @@ export interface ClassificationSuggestion {
   description: string;
 }
 
-/** Klasifikace je dostupná pouze pokud je dostupná OpenAI. */
+/** Klasifikace je dostupná pouze pokud je dostupný chat model. */
 export function classificationAvailable(): boolean {
-  return isOpenAiUsable();
+  return isChatUsable();
 }
 
 // Maximální délka textu posílaná modelu (úspora tokenů). Klasifikaci stačí
@@ -109,7 +109,7 @@ export async function classifyDocument(
 
   let raw: string;
   try {
-    const completion = await getOpenAi().chat.completions.create({
+    const completion = await getOpenAi(env.openai.chatApiKey).chat.completions.create({
       model: env.openai.chatModel,
       response_format: { type: "json_object" },
       messages: [

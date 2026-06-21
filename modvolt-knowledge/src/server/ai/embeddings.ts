@@ -1,9 +1,9 @@
 import { getOpenAi } from "./openai-client.js";
-import { env, isOpenAiUsable } from "../env.js";
+import { env, isEmbeddingsUsable } from "../env.js";
 import { logger } from "../lib/logger.js";
 
 export function embeddingsAvailable(): boolean {
-  return isOpenAiUsable();
+  return isEmbeddingsUsable();
 }
 
 /**
@@ -67,7 +67,7 @@ export async function createEmbeddings(
     () =>
       // maxRetries: 0 vypne vestavěné opakování SDK pro tuto cestu — opakování
       // řeší withRetry, aby se počty opakování nenásobily (SDK × wrapper).
-      getOpenAi().embeddings.create(
+      getOpenAi(env.openai.embeddingApiKey).embeddings.create(
         {
           model: env.openai.embeddingModel,
           input: texts,

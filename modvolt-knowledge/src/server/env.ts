@@ -32,6 +32,11 @@ function normalizeEndpoint(value: string): string {
   return `https://${v}`;
 }
 
+// Společný (výchozí) OpenAI API klíč. U některých poskytovatelů se klíče
+// generují zvlášť k jednotlivým modelům, proto lze níže nastavit i samostatný
+// klíč pro embeddingy, chat a vision; když chybí, použije se tento společný.
+const openaiApiKey = str("OPENAI_API_KEY");
+
 export const env = {
   nodeEnv: str("NODE_ENV", "development"),
   isProduction: str("NODE_ENV", "development") === "production",
@@ -59,7 +64,11 @@ export const env = {
   },
 
   openai: {
-    apiKey: str("OPENAI_API_KEY"),
+    apiKey: openaiApiKey,
+    // Samostatné klíče k jednotlivým modelům (fallback = společný OPENAI_API_KEY).
+    embeddingApiKey: str("OPENAI_EMBEDDING_API_KEY", openaiApiKey),
+    chatApiKey: str("OPENAI_CHAT_API_KEY", openaiApiKey),
+    visionApiKey: str("OPENAI_VISION_API_KEY", openaiApiKey),
     embeddingModel: str("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
     chatModel: str("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
     visionModel: str("OPENAI_VISION_MODEL", "gpt-4o-mini"),
@@ -130,15 +139,29 @@ export function validateEnv(): void {
   }
 }
 
-/** Vrací true, pokud je OpenAI prakticky použitelná (klíč + povoleno). */
+/** Chat (a klasifikace) je použitelný, je-li OpenAI povolené a je klíč pro chat. */
+export function isChatUsable(): boolean {
+  return env.openai.enabled && env.openai.chatApiKey.length > 0;
+}
+
+/** Embeddingy (indexace) jsou použitelné, je-li OpenAI povolené a je klíč pro embeddingy. */
+export function isEmbeddingsUsable(): boolean {
+  return env.openai.enabled && env.openai.embeddingApiKey.length > 0;
+}
+
+/** Obecná dostupnost OpenAI: povoleno a je k dispozici aspoň jeden klíč. */
 export function isOpenAiUsable(): boolean {
-  return env.openai.enabled && env.openai.apiKey.length > 0;
+  return (
+    env.openai.enabled &&
+    (env.openai.chatApiKey.length > 0 || env.openai.embeddingApiKey.length > 0)
+  );
 }
 
 export function isVisionUsable(): boolean {
   return (
-    isOpenAiUsable() &&
+    env.openai.enabled &&
     env.openai.imageAnalysisEnabled &&
+    env.openai.visionApiKey.length > 0 &&
     env.openai.visionModel.length > 0
   );
 }

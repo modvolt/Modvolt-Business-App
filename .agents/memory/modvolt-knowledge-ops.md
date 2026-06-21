@@ -54,6 +54,11 @@ On the Hetzner/Coolify deployment, indexing failed with `FetchError: ... /v1/emb
 **Why:** Self-hosted egress to OpenAI is less reliable than Replit's; large embedding batches (was 64 chunks → big response body) raise the chance of a mid-stream close. The OpenAI SDK's built-in retry does NOT reliably cover response-body read errors, so a wrapper-level retry is required.
 **How to apply:** Wrap OpenAI calls (esp. embeddings) in retry-with-exponential-backoff that treats network/`Premature close`/`ECONNRESET`/429/5xx as retryable but NOT 4xx config errors. Keep `maxRetries` on the client too. Prefer smaller embedding batches (default lowered to 16, env `OPENAI_EMBEDDING_BATCH_SIZE`); retries via env `OPENAI_MAX_RETRIES`. If a doc still lands `failed` after a sustained outage, the admin UI "Reindex" re-queues it.
 
+## OpenAI keys can be per-model, not one global key
+Some providers issue an API key bound to a single model, so one `OPENAI_API_KEY` can't cover embeddings + chat + vision at once. The app supports an optional separate key per role (`OPENAI_EMBEDDING_API_KEY` / `OPENAI_CHAT_API_KEY` / `OPENAI_VISION_API_KEY`), each falling back to the shared `OPENAI_API_KEY`.
+**Why:** User's provider generates keys per model; with a single key, either embeddings or chat would 401/403 depending on which model the key was minted for.
+**How to apply:** The OpenAI client caches one instance per API key; pick the key by role at the call site. Availability is split: `isEmbeddingsUsable()` (indexing), `isChatUsable()` (chat + classification), `isVisionUsable()`. The model still has its own `OPENAI_*_MODEL` var and must match the key. Keep the per-role key + per-role model in lockstep.
+
 ## Upload filenames with diacritics arrive mojibake — re-decode latin1→utf8
 Czech filenames came out garbled in the document list ("Modulární" → "ModulÃ¡rnÃ­"). Cause: multer/busboy decodes the multipart filename header as **latin1**, so UTF-8 bytes get misread. Fix: a middleware runs after each multer middleware and rewrites `req.file(s).originalname` via `Buffer.from(name,"latin1").toString("utf8")` (identity for pure ASCII).
 **Why:** The S3 object key is a content hash (ASCII-safe), so storage was never affected — only the human-readable `title`/`originalFileName` stored in the DB. Verified: the exact screenshot mojibake round-trips back to the correct string.

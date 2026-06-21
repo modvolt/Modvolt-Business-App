@@ -9,8 +9,8 @@ let createCalls = 0;
 
 mock.module("../env.js", {
   namedExports: {
-    env: { openai: { chatModel: "gpt-4o-mini" } },
-    isOpenAiUsable: () => openAiUsable,
+    env: { openai: { chatModel: "gpt-4o-mini", chatApiKey: "test-key" } },
+    isChatUsable: () => openAiUsable,
   },
 });
 
@@ -58,7 +58,7 @@ beforeEach(() => {
   createCalls = 0;
 });
 
-test("classificationAvailable reflects isOpenAiUsable", () => {
+test("classificationAvailable reflects isChatUsable", () => {
   openAiUsable = true;
   assert.equal(classificationAvailable(), true);
   openAiUsable = false;

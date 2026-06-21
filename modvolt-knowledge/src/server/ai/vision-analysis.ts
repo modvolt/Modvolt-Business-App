@@ -15,7 +15,7 @@ export async function describeImage(imageBuffer: Buffer): Promise<string> {
     throw new Error("Analýza obrazu není dostupná.");
   }
   const dataUrl = imageToDataUrl(imageBuffer);
-  const res = await getOpenAi().chat.completions.create({
+  const res = await getOpenAi(env.openai.visionApiKey).chat.completions.create({
     model: env.openai.visionModel,
     messages: [
       {

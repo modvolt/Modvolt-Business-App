@@ -6,7 +6,7 @@ import { tagRouter } from "./tag-routes.js";
 import { searchRouter } from "./search-routes.js";
 import { adminRouter } from "./admin-routes.js";
 import {
-  isOpenAiUsable,
+  isChatUsable,
   isVisionUsable,
 } from "../env.js";
 import { webSearchAvailable } from "../search/web-search-service.js";
@@ -16,7 +16,7 @@ export const apiRouter = createRouter();
 // Veřejné info o dostupných funkcích (pro UI).
 apiRouter.get("/capabilities", (_req, res) => {
   res.json({
-    aiChat: isOpenAiUsable(),
+    aiChat: isChatUsable(),
     vision: isVisionUsable(),
     webSearch: webSearchAvailable(),
   });

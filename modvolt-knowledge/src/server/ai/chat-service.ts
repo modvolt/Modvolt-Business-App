@@ -1,5 +1,5 @@
 import { getOpenAi } from "./openai-client.js";
-import { env, isOpenAiUsable } from "../env.js";
+import { env, isChatUsable } from "../env.js";
 import { DEFAULT_PROMPT_VERSION } from "./prompts/index.js";
 import { resolvePrompt } from "./prompts/prompt-store.js";
 import { searchChunks, type SearchHit } from "../search/search-service.js";
@@ -37,7 +37,7 @@ export interface AskResult {
 }
 
 export function aiChatAvailable(): boolean {
-  return isOpenAiUsable();
+  return isChatUsable();
 }
 
 export async function ask(opts: AskOptions): Promise<AskResult> {
@@ -115,7 +115,7 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
       : ""
   }DOSTUPNÉ ZDROJE:\n${contextBlock}`;
 
-  const completion = await getOpenAi().chat.completions.create({
+  const completion = await getOpenAi(env.openai.chatApiKey).chat.completions.create({
     model: env.openai.chatModel,
     response_format: { type: "json_object" },
     messages: [
