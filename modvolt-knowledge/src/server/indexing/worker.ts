@@ -164,7 +164,7 @@ async function processJob(jobId: string, documentId: string): Promise<void> {
 async function embedChunks(
   chunks: { id: string; content: string }[],
 ): Promise<void> {
-  const BATCH = 64;
+  const BATCH = Math.max(1, env.openai.embeddingBatchSize);
   for (let i = 0; i < chunks.length; i += BATCH) {
     const slice = chunks.slice(i, i + BATCH);
     const vectors = await createEmbeddings(slice.map((c) => c.content));

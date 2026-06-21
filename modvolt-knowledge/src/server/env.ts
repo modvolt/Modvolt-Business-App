@@ -68,6 +68,12 @@ export const env = {
     maxContextChunks: num("OPENAI_MAX_CONTEXT_CHUNKS", 8),
     maxUploadMb: num("OPENAI_MAX_UPLOAD_MB", 15),
     requestTimeoutMs: num("OPENAI_REQUEST_TIMEOUT_MS", 60000),
+    // Počet opakování při přechodných síťových chybách (např. "Premature close"
+    // mezi serverem a api.openai.com). Týká se embeddingů i chatu. Omezeno 0–10.
+    maxRetries: Math.max(0, Math.min(10, num("OPENAI_MAX_RETRIES", 4))),
+    // Velikost dávky pro embeddingy. Menší dávka = menší request/response a nižší
+    // pravděpodobnost přerušení spojení na nestabilní síti.
+    embeddingBatchSize: num("OPENAI_EMBEDDING_BATCH_SIZE", 16),
   },
 
   image: {

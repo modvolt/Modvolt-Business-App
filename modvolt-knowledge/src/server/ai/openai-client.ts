@@ -13,6 +13,7 @@ export function getOpenAi(): OpenAI {
     client = new OpenAI({
       apiKey: env.openai.apiKey,
       timeout: env.openai.requestTimeoutMs,
+      maxRetries: env.openai.maxRetries,
     });
   }
   return client;
