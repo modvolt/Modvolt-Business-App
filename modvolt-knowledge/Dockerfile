@@ -1,27 +1,40 @@
 # ---------------------------------------------------------------------------
 # Modvolt Knowledge - produkční Dockerfile (použitelný mimo Replit)
+#
+# Závislosti se instalují POUZE JEDNOU v build fázi. Runtime fáze už jen
+# zkopíruje hotové (a od dev-závislostí očištěné) node_modules. Tím se
+# nezdvojuje instalace nativních modulů (sharp) a hlavně se nespotřebuje
+# dvojnásobek paměti při paralelním buildu (BuildKit jinak staví obě fáze
+# současně -> npm byl zabíjen kvůli nedostatku paměti / "Exit handler never
+# called!").
 # ---------------------------------------------------------------------------
 FROM node:22-slim AS build
 WORKDIR /app
 
-# Nativní závislosti pro sharp / pdf-parse build
+# Nativní závislosti pro případný build sharp / pdf-parse
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 COPY . .
 RUN npm run build
+
+# Z node_modules odstraň dev-závislosti, ať je runtime image malý a
+# nemusí se znovu nic instalovat.
+RUN npm prune --omit=dev
 
 # --- Runtime image ---
 FROM node:22-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev || npm install --omit=dev
+# Hotové produkční node_modules + manifesty (žádný npm install už neběží)
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/package-lock.json* ./
 
 # Zkompilovaný backend, postavený frontend, migrace a zdroj pro tsx skripty
 COPY --from=build /app/dist ./dist
