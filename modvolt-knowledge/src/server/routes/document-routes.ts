@@ -1,4 +1,5 @@
 import { createRouter } from "../lib/async-router.js";
+import { decodeMultipartFilename } from "../lib/filename.js";
 import multer from "multer";
 import { z } from "zod";
 import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
@@ -79,6 +80,23 @@ const zipUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.upload.maxZipMb * 1024 * 1024 },
 });
+
+/** Opraví kódování názvů nahraných souborů (req.file i req.files). */
+function fixUploadedFilenames(
+  req: { file?: Express.Multer.File; files?: unknown },
+  _res: unknown,
+  next: () => void,
+): void {
+  if (req.file) {
+    req.file.originalname = decodeMultipartFilename(req.file.originalname);
+  }
+  if (Array.isArray(req.files)) {
+    for (const f of req.files as Express.Multer.File[]) {
+      f.originalname = decodeMultipartFilename(f.originalname);
+    }
+  }
+  next();
+}
 
 documentRouter.use(requireAuth);
 
@@ -229,6 +247,7 @@ documentRouter.post(
   "/",
   requireWriteAccess,
   upload.single("file"),
+  fixUploadedFilenames,
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Chybí soubor." });
     const parsed = uploadSchema.safeParse(req.body);
@@ -304,6 +323,7 @@ documentRouter.post(
   "/batch/zip",
   requireWriteAccess,
   zipUpload.single("file"),
+  fixUploadedFilenames,
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Chybí ZIP soubor." });
     if (!isZipFile(req.file.originalname)) {
@@ -364,6 +384,7 @@ documentRouter.post(
   "/batch/analyze",
   requireWriteAccess,
   batchUpload.array("files", MAX_BATCH_FILES),
+  fixUploadedFilenames,
   async (req, res) => {
     const uploaded = (req.files as Express.Multer.File[] | undefined) ?? [];
 
@@ -500,6 +521,7 @@ documentRouter.post(
   "/batch/commit",
   requireWriteAccess,
   batchUpload.array("files", MAX_BATCH_FILES),
+  fixUploadedFilenames,
   async (req, res) => {
     const uploaded = (req.files as Express.Multer.File[] | undefined) ?? [];
 
