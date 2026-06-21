@@ -18,25 +18,32 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false
 
-# Nativní závislosti pro případný build sharp / pdf-parse
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
+# POZN.: žádný apt-get / python3 / make / g++ není potřeba. sharp i esbuild
+# se instalují jako PŘEDKOMPILOVANÉ binárky (optional deps @img/* a @esbuild/*),
+# nic se nekompiluje ze zdroje. Ověřeno: `npm ci` v čistém node:24-slim projde
+# bez build nástrojů. Vynecháním apt-get mizí závislost na Debian mirrorech
+# (častý zdroj zaseknutí buildu při "redeploy without cache").
 
 COPY package.json package-lock.json* ./
-# Síťově odolná instalace (delší timeouty + opakování při výpadku registru).
-# Když instalace přesto selže, vypiš SKUTEČNOU příčinu (npm debug log) a stav
-# disku přímo do deploy logu — ať se nehádá, ale vidí (typicky ENOSPC/síť).
-RUN npm config set fetch-retries 5 \
- && npm config set fetch-retry-mintimeout 20000 \
- && npm config set fetch-retry-maxtimeout 120000 \
- && npm config set fetch-timeout 600000 \
+
+# Rychlý test, zda je npm registry z build kontejneru vůbec dosažitelná
+# (na serveru vidíme v logu latenci / nedostupnost).
+RUN node -e "const t=Date.now();fetch('https://registry.npmjs.org/-/ping',{signal:AbortSignal.timeout(15000)}).then(r=>console.log('npm registry OK',r.status,(Date.now()-t)+'ms')).catch(e=>console.error('npm registry NEDOSTUPNA:',e.message))" || true
+
+# Síťově odolná, ale RYCHLE SELHÁVAJÍCÍ instalace — žádné nekonečné čekání.
+# (Předchozí fetch-timeout 600000 způsobil, že jediné zaseknuté spojení
+#  drželo build i 10 min; proto kratší timeouty + omezení paralelních spojení.)
+# Když instalace selže, vypiš SKUTEČNOU příčinu (npm debug log) + stav disku.
+RUN npm config set fetch-timeout 120000 \
+ && npm config set fetch-retries 3 \
+ && npm config set fetch-retry-mintimeout 10000 \
+ && npm config set fetch-retry-maxtimeout 60000 \
+ && npm config set maxsockets 5 \
  && { npm ci || npm install ; } \
  || { echo "================ NPM INSTALL SELHALO ================" >&2; \
       echo "--- posledních 150 řádků npm debug logu ---" >&2; \
       tail -n 150 /root/.npm/_logs/*-debug-0.log 2>/dev/null || true; \
       echo "--- volné místo na disku (df -h) ---" >&2; df -h || true; \
-      echo "--- volné inody (df -i) ---" >&2; df -i || true; \
       exit 1 ; }
 
 COPY . .
