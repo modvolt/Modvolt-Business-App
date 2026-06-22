@@ -20,7 +20,6 @@ import {
   createCustomPrompt,
   updateCustomPrompt,
   deleteCustomPrompt,
-  PromptStoreError,
 } from "../ai/prompts/prompt-store.js";
 import { invalidateSettingsCache } from "../lib/settings.js";
 import { audit } from "../lib/audit.js";
@@ -166,16 +165,9 @@ adminRouter.post("/prompts", async (req, res) => {
       .status(400)
       .json({ error: parsed.error.issues[0]?.message ?? "Neplatná data promptu." });
   }
-  try {
-    const row = await createCustomPrompt(parsed.data);
-    await audit(req, "create", "prompt_version", row.version);
-    res.status(201).json({ ok: true });
-  } catch (err) {
-    if (err instanceof PromptStoreError) {
-      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
-    }
-    throw err;
-  }
+  const row = await createCustomPrompt(parsed.data);
+  await audit(req, "create", "prompt_version", row.version);
+  res.status(201).json({ ok: true });
 });
 
 const updatePromptSchema = z.object({
@@ -190,16 +182,9 @@ adminRouter.put("/prompts/:version", async (req, res) => {
       .status(400)
       .json({ error: parsed.error.issues[0]?.message ?? "Neplatná data promptu." });
   }
-  try {
-    const row = await updateCustomPrompt(req.params.version, parsed.data);
-    await audit(req, "update", "prompt_version", row.version);
-    res.json({ ok: true });
-  } catch (err) {
-    if (err instanceof PromptStoreError) {
-      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
-    }
-    throw err;
-  }
+  const row = await updateCustomPrompt(req.params.version, parsed.data);
+  await audit(req, "update", "prompt_version", row.version);
+  res.json({ ok: true });
 });
 
 adminRouter.delete("/prompts/:version", async (req, res) => {
@@ -210,14 +195,7 @@ adminRouter.delete("/prompts/:version", async (req, res) => {
     .from(appSettings)
     .where(eq(appSettings.key, "ai_prompt_version"))
     .limit(1);
-  try {
-    await deleteCustomPrompt(version);
-  } catch (err) {
-    if (err instanceof PromptStoreError) {
-      return res.status(err.kind === "conflict" ? 409 : 404).json({ error: err.message });
-    }
-    throw err;
-  }
+  await deleteCustomPrompt(version);
   if (activeRow?.value === version) {
     await db
       .update(appSettings)
