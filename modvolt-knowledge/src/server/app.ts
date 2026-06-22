@@ -1,12 +1,11 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
-import crypto from "node:crypto";
 import { buildSessionMiddleware } from "./auth/session.js";
 import { loadUser } from "./middleware/auth.js";
 import { apiRouter } from "./routes/index.js";
 import { healthRouter } from "./routes/health-routes.js";
 import { logger } from "./lib/logger.js";
-import { describeError } from "./lib/errors.js";
+import { apiErrorHandler } from "./lib/error-handler.js";
 import { env } from "./env.js";
 
 export function createApp(): Express {
@@ -75,42 +74,10 @@ export function createApp(): Express {
 
   app.use("/api", apiRouter);
 
-  // Centrální chybový handler API. Sem se díky `createRouter`/`asyncHandler`
-  // dostanou i odmítnuté Promise z asynchronních handlerů, takže selhání
-  // jednoho requestu vrátí chybu jen jemu a server běží dál.
-  //
-  // Známé/operační chyby (AppError a potomci nesoucí status + bezpečnou hlášku)
-  // propustí svou konkrétní zprávu i správný HTTP status. Neočekávané chyby
-  // dostanou obecnou hlášku doplněnou o krátký identifikátor incidentu, který se
-  // zaloguje spolu s detailem a stackem — díky tomu lze hlášku spárovat s logem.
-  app.use("/api", (err: Error, req: Request, res: Response, next: NextFunction) => {
-    const described = describeError(err);
-
-    if (described.expose) {
-      logger.warn("Operační chyba API", {
-        method: req.method,
-        path: req.originalUrl,
-        status: described.status,
-        message: err?.message ?? String(err),
-      });
-      if (res.headersSent) return next(err);
-      return res.status(described.status).json({ error: described.message });
-    }
-
-    const incidentId = crypto.randomUUID().slice(0, 8);
-    logger.error("Neošetřená chyba API", {
-      incidentId,
-      method: req.method,
-      path: req.originalUrl,
-      message: err?.message ?? String(err),
-      stack: err?.stack,
-    });
-    if (res.headersSent) return next(err);
-    res.status(500).json({
-      error: `Interní chyba serveru. (kód incidentu: ${incidentId})`,
-      incidentId,
-    });
-  });
+  // Centrální chybový handler API (viz lib/error-handler.ts). Sem se díky
+  // `createRouter`/`asyncHandler` dostanou i odmítnuté Promise z asynchronních
+  // handlerů, takže selhání jednoho requestu vrátí chybu jen jemu a server běží dál.
+  app.use("/api", apiErrorHandler);
 
   return app;
 }
