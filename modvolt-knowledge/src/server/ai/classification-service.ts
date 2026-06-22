@@ -109,7 +109,7 @@ export async function classifyDocument(
 
   let raw: string;
   try {
-    const completion = await getOpenAi(env.openai.chatApiKey).chat.completions.create({
+    const completion = await getOpenAi().chat.completions.create({
       model: env.openai.chatModel,
       response_format: { type: "json_object" },
       messages: [

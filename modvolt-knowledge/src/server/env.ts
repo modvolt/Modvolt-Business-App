@@ -32,9 +32,9 @@ function normalizeEndpoint(value: string): string {
   return `https://${v}`;
 }
 
-// Společný (výchozí) OpenAI API klíč. U některých poskytovatelů se klíče
-// generují zvlášť k jednotlivým modelům, proto lze níže nastavit i samostatný
-// klíč pro embeddingy, chat a vision; když chybí, použije se tento společný.
+// Jeden OpenAI API klíč pro všechny modely (chat, klasifikaci, embeddingy
+// i vizi). Pro jiného OpenAI-kompatibilního poskytovatele lze přesměrovat
+// endpoint přes OPENAI_BASE_URL níže.
 const openaiApiKey = str("OPENAI_API_KEY");
 
 export const env = {
@@ -64,21 +64,22 @@ export const env = {
   },
 
   openai: {
+    // Jeden klíč pro všechny modely.
     apiKey: openaiApiKey,
-    // Samostatné klíče k jednotlivým modelům (fallback = společný OPENAI_API_KEY).
-    embeddingApiKey: str("OPENAI_EMBEDDING_API_KEY", openaiApiKey),
-    chatApiKey: str("OPENAI_CHAT_API_KEY", openaiApiKey),
-    visionApiKey: str("OPENAI_VISION_API_KEY", openaiApiKey),
-    embeddingModel: str("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+    // Volitelný OpenAI-kompatibilní endpoint. Prázdné = výchozí api.openai.com.
+    baseUrl: normalizeEndpoint(str("OPENAI_BASE_URL", "")),
+    // Jeden chat model obsluhuje chat, klasifikaci i popis fotek (pro analýzu
+    // obrázků musí být multimodální). Embeddingy vyžadují samostatný embedding
+    // model – chat model embeddingy spočítat neumí.
     chatModel: str("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-    visionModel: str("OPENAI_VISION_MODEL", "gpt-4o-mini"),
+    embeddingModel: str("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
     enabled: bool("OPENAI_ENABLED", false),
     imageAnalysisEnabled: bool("OPENAI_IMAGE_ANALYSIS_ENABLED", false),
     maxContextChunks: num("OPENAI_MAX_CONTEXT_CHUNKS", 8),
     maxUploadMb: num("OPENAI_MAX_UPLOAD_MB", 15),
     requestTimeoutMs: num("OPENAI_REQUEST_TIMEOUT_MS", 60000),
-    // Počet opakování při přechodných síťových chybách (např. "Premature close"
-    // mezi serverem a api.openai.com). Týká se embeddingů i chatu. Omezeno 0–10.
+    // Počet opakování při přechodných síťových chybách (např. "Premature close").
+    // Týká se embeddingů i chatu. Omezeno 0–10.
     maxRetries: Math.max(0, Math.min(10, num("OPENAI_MAX_RETRIES", 4))),
     // Velikost dávky pro embeddingy. Menší dávka = menší request/response a nižší
     // pravděpodobnost přerušení spojení na nestabilní síti.
@@ -139,31 +140,24 @@ export function validateEnv(): void {
   }
 }
 
-/** Chat (a klasifikace) je použitelný, je-li OpenAI povolené a je klíč pro chat. */
-export function isChatUsable(): boolean {
-  return env.openai.enabled && env.openai.chatApiKey.length > 0;
-}
-
-/** Embeddingy (indexace) jsou použitelné, je-li OpenAI povolené a je klíč pro embeddingy. */
-export function isEmbeddingsUsable(): boolean {
-  return env.openai.enabled && env.openai.embeddingApiKey.length > 0;
-}
-
-/** Obecná dostupnost OpenAI: povoleno a je k dispozici aspoň jeden klíč. */
+/** OpenAI je použitelné, je-li povolené a je nastaven API klíč. */
 export function isOpenAiUsable(): boolean {
-  return (
-    env.openai.enabled &&
-    (env.openai.chatApiKey.length > 0 || env.openai.embeddingApiKey.length > 0)
-  );
+  return env.openai.enabled && env.openai.apiKey.length > 0;
 }
 
+/** Chat, klasifikace i popis fotek – vše běží na jednom klíči a chat modelu. */
+export function isChatUsable(): boolean {
+  return isOpenAiUsable();
+}
+
+/** Embeddingy (indexace) běží na stejném klíči, ale embedding modelu. */
+export function isEmbeddingsUsable(): boolean {
+  return isOpenAiUsable();
+}
+
+/** Vize navíc vyžaduje zapnutou analýzu obrázků (a multimodální chat model). */
 export function isVisionUsable(): boolean {
-  return (
-    env.openai.enabled &&
-    env.openai.imageAnalysisEnabled &&
-    env.openai.visionApiKey.length > 0 &&
-    env.openai.visionModel.length > 0
-  );
+  return isOpenAiUsable() && env.openai.imageAnalysisEnabled;
 }
 
 export function isS3Configured(): boolean {

@@ -9,7 +9,7 @@ let createCalls = 0;
 
 mock.module("../env.js", {
   namedExports: {
-    env: { openai: { chatModel: "gpt-4o-mini", chatApiKey: "test-key" } },
+    env: { openai: { chatModel: "gpt-4o-mini" } },
     isChatUsable: () => openAiUsable,
   },
 });

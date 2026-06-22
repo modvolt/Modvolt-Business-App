@@ -67,7 +67,7 @@ export async function createEmbeddings(
     () =>
       // maxRetries: 0 vypne vestavěné opakování SDK pro tuto cestu — opakování
       // řeší withRetry, aby se počty opakování nenásobily (SDK × wrapper).
-      getOpenAi(env.openai.embeddingApiKey).embeddings.create(
+      getOpenAi().embeddings.create(
         {
           model: env.openai.embeddingModel,
           input: texts,
