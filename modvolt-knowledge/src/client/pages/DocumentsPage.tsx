@@ -550,7 +550,10 @@ function BatchImport({
         const res = await api.batchAnalyze(form);
         const r = res.results[0];
         if (!r) {
-          updateRow(i, { status: "error", message: "Bez výsledku analýzy." });
+          updateRow(i, {
+            status: "error",
+            message: "Server nevrátil výsledek analýzy pro tento soubor.",
+          });
           continue;
         }
         updateRow(i, {

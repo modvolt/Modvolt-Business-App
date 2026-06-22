@@ -287,13 +287,17 @@ documentRouter.post(
       await audit(req, action, "document", doc.id, { title: doc.title });
       res.status(201).json({ document: doc });
     } catch (err) {
+      // Duplicita nese navíc ID existujícího dokumentu, proto vlastní odpověď.
       if (err instanceof DuplicateDocumentError) {
         return res.status(409).json({
           error: err.message,
           existingDocumentId: err.existingDocumentId,
         });
       }
-      res.status(400).json({ error: String((err as Error).message) });
+      // Ostatní chyby propustíme do centrálního handleru: typované operační
+      // chyby si nesou správný status (400 chybný typ, 404 nenalezeno, 503
+      // úložiště), neočekávané dostanou obecnou hlášku s identifikátorem.
+      throw err;
     }
   },
 );

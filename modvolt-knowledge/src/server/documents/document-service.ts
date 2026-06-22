@@ -10,16 +10,18 @@ import {
 } from "../db/schema.js";
 import { putObject, deleteObject } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
+import { AppError, BadRequestError, NotFoundError } from "../lib/errors.js";
 import type { DocumentType, DocumentVisibility } from "../../shared/types.js";
 
-/** Chyba duplicity podle SHA-256 (stejný soubor už v databázi existuje). */
-export class DuplicateDocumentError extends Error {
+/** Chyba duplicity podle SHA-256 (stejný soubor už v databázi existuje) → 409. */
+export class DuplicateDocumentError extends AppError {
   constructor(
     public existingDocumentId: string,
     public existingTitle: string,
   ) {
     super(
       `Tento soubor už v databázi existuje (duplicita podle SHA-256): "${existingTitle}".`,
+      409,
     );
     this.name = "DuplicateDocumentError";
   }
@@ -148,7 +150,7 @@ export async function findDocumentByHash(hash: string) {
 
 export async function createDocument(input: CreateDocumentInput) {
   if (!isAcceptedDocument(input.originalFileName)) {
-    throw new Error("Nepodporovaný typ souboru.");
+    throw new BadRequestError("Nepodporovaný typ souboru.");
   }
   const ext = input.originalFileName.split(".").pop()!.toLowerCase();
   const mimeType = input.mimeType || MIME_BY_EXT[ext] || "application/octet-stream";
@@ -257,7 +259,7 @@ async function replaceDocument(
     .where(eq(documents.id, input.replaceDocumentId!))
     .limit(1);
   const doc = current[0];
-  if (!doc) throw new Error("Dokument k aktualizaci nebyl nalezen.");
+  if (!doc) throw new NotFoundError("Dokument k aktualizaci nebyl nalezen.");
 
   // Beze změny obsahu nemá verzování smysl.
   if (doc.sha256Hash === meta.hash) {

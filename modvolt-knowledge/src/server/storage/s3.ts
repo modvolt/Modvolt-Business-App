@@ -9,13 +9,14 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 import { env, isS3Configured } from "../env.js";
 import { logger } from "../lib/logger.js";
+import { ServiceUnavailableError } from "../lib/errors.js";
 
 let client: S3Client | null = null;
 
 function getClient(): S3Client {
   if (!isS3Configured()) {
-    throw new Error(
-      "S3 úložiště není nakonfigurováno (S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY).",
+    throw new ServiceUnavailableError(
+      "Úložiště souborů není nakonfigurováno.",
     );
   }
   if (!client) {

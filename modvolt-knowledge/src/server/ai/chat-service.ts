@@ -15,6 +15,7 @@ import { aiAnswerSchema, safeFallbackAnswer } from "./answer-schema.js";
 import { sanitizeWebText } from "../search/web-sanitize.js";
 import type { AiAnswer, SourceMode } from "../../shared/types.js";
 import { logger } from "../lib/logger.js";
+import { ServiceUnavailableError } from "../lib/errors.js";
 
 export interface AskOptions {
   query: string;
@@ -42,7 +43,7 @@ export function aiChatAvailable(): boolean {
 
 export async function ask(opts: AskOptions): Promise<AskResult> {
   if (!aiChatAvailable()) {
-    throw new Error("AI chat není dostupný (OpenAI je vypnuto).");
+    throw new ServiceUnavailableError("AI chat není dostupný (OpenAI je vypnuto).");
   }
 
   // Klíčová slova zámku ČSN se čtou za běhu z nastavení (editovatelné adminem,

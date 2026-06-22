@@ -13,6 +13,8 @@ import { visionAvailable } from "../ai/vision-analysis.js";
 import { putObject, getObjectBuffer } from "../storage/s3.js";
 import { isS3Configured, env } from "../env.js";
 import { audit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
+import { ServiceUnavailableError } from "../lib/errors.js";
 import type { SourceMode } from "../../shared/types.js";
 
 const ACCEPTED_IMAGE_MIME = new Set([
@@ -138,46 +140,48 @@ searchRouter.post("/ask", imageUpload.array("images", 4), async (req, res) => {
       }
     }
   } catch (err) {
-    return res.status(503).json({
-      error: `Zpracování nebo uložení fotografie selhalo: ${String(
-        (err as Error).message,
-      )}`,
+    // Konkrétní příčinu (chyba úložiště / zpracování obrázku) logujeme; uživateli
+    // ukážeme bezpečnou, ne-prozrazující hlášku se správným statusem (503).
+    logger.warn("Zpracování nebo uložení fotografie selhalo", {
+      message: (err as Error).message,
     });
+    throw new ServiceUnavailableError(
+      "Zpracování nebo uložení fotografie selhalo.",
+    );
   }
 
-  try {
-    const result = await ask({
-      query: parsed.data.query,
-      requestedSourceMode: (parsed.data.sourceMode as SourceMode) || "internal_only",
-      includeAdminOnly: req.currentUser!.role === "admin",
-      imageBuffers,
-      promptVersion: parsed.data.promptVersion,
-    });
+  // Případné chyby z `ask` i z následného zápisu propustíme do centrálního
+  // handleru: operační chyby (např. AI nedostupné → 503) si nesou svůj status
+  // a hlášku, neočekávané dostanou obecnou hlášku s identifikátorem incidentu.
+  const result = await ask({
+    query: parsed.data.query,
+    requestedSourceMode: (parsed.data.sourceMode as SourceMode) || "internal_only",
+    includeAdminOnly: req.currentUser!.role === "admin",
+    imageBuffers,
+    promptVersion: parsed.data.promptVersion,
+  });
 
-    await db.insert(searchQueries).values({
-      userId: req.currentUser!.id,
-      query: parsed.data.query,
-      mode: imageBuffers.length ? "image_chat" : "ai_chat",
-      sourceMode: result.answer.sourceMode,
-      resultCount: result.usedChunkIds.length,
-      promptVersion: result.promptVersion,
-      model: result.model,
-      usedChunkIds: result.usedChunkIds,
-      usedWebSearch: result.usedWebSearch,
-      attachmentIds: attachmentIds.length ? attachmentIds : null,
-      csnLockTriggered: result.sourceModeLocked,
-      csnLockTrigger: result.csnLockTrigger ?? null,
-    });
-    await audit(req, "ai_ask", "search", undefined, {
-      sourceMode: result.answer.sourceMode,
-      usedWebSearch: result.usedWebSearch,
-      attachmentCount: attachmentIds.length,
-    });
+  await db.insert(searchQueries).values({
+    userId: req.currentUser!.id,
+    query: parsed.data.query,
+    mode: imageBuffers.length ? "image_chat" : "ai_chat",
+    sourceMode: result.answer.sourceMode,
+    resultCount: result.usedChunkIds.length,
+    promptVersion: result.promptVersion,
+    model: result.model,
+    usedChunkIds: result.usedChunkIds,
+    usedWebSearch: result.usedWebSearch,
+    attachmentIds: attachmentIds.length ? attachmentIds : null,
+    csnLockTriggered: result.sourceModeLocked,
+    csnLockTrigger: result.csnLockTrigger ?? null,
+  });
+  await audit(req, "ai_ask", "search", undefined, {
+    sourceMode: result.answer.sourceMode,
+    usedWebSearch: result.usedWebSearch,
+    attachmentCount: attachmentIds.length,
+  });
 
-    res.json({ ...result, attachmentIds });
-  } catch (err) {
-    res.status(500).json({ error: String((err as Error).message) });
-  }
+  res.json({ ...result, attachmentIds });
 });
 
 // Autorizované zobrazení přiložené fotografie (jen vlastník nebo admin).

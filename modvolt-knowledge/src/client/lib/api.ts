@@ -13,8 +13,17 @@ async function req<T>(
     ...options,
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    // Tělo není JSON (např. HTML chyba z proxy) – necháme prázdné, ať se použije
+    // obecný fallback s HTTP statusem níže.
+    data = {};
+  }
   if (!res.ok) {
+    // Vždy upřednostni konkrétní hlášku z API; obecný fallback se statusem
+    // ponech jen pro úplně chybějící/neparsovatelné tělo odpovědi.
     throw new Error(data?.error || `Chyba ${res.status}`);
   }
   return data as T;

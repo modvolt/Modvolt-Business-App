@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { promptVersions } from "../../db/schema.js";
+import { AppError } from "../../lib/errors.js";
 import {
   type PromptVersion,
   getPrompt,
@@ -155,10 +156,11 @@ export async function deleteCustomPrompt(version: string) {
 
 export type PromptStoreErrorKind = "conflict" | "not_found";
 
-export class PromptStoreError extends Error {
+export class PromptStoreError extends AppError {
   kind: PromptStoreErrorKind;
   constructor(message: string, kind: PromptStoreErrorKind) {
-    super(message);
+    super(message, kind === "not_found" ? 404 : 409);
+    this.name = "PromptStoreError";
     this.kind = kind;
   }
 }
