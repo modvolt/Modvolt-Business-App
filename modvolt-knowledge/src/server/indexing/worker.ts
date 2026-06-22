@@ -10,6 +10,7 @@ import { getObjectBuffer } from "../storage/s3.js";
 import { extractText } from "../documents/text-extraction.js";
 import { chunkText } from "../documents/chunking.js";
 import {
+  createEmbedding,
   createEmbeddings,
   embeddingsAvailable,
   toVectorLiteral,
@@ -167,7 +168,23 @@ async function embedChunks(
   const BATCH = Math.max(1, env.openai.embeddingBatchSize);
   for (let i = 0; i < chunks.length; i += BATCH) {
     const slice = chunks.slice(i, i + BATCH);
-    const vectors = await createEmbeddings(slice.map((c) => c.content));
+    let vectors: number[][];
+    try {
+      vectors = await createEmbeddings(slice.map((c) => c.content));
+    } catch (err) {
+      // Dávka selhala i po opakování (typicky síťové „Premature close" nebo
+      // jeden problémový chunk). Degradujeme na embedding po jednom chunku —
+      // menší požadavky častěji projdou a izolují případný vadný chunk.
+      if (slice.length === 1) throw err;
+      logger.warn(
+        `Embedding dávky (${slice.length} chunků) selhal, zkouším po jednom`,
+        String(err),
+      );
+      vectors = [];
+      for (const c of slice) {
+        vectors.push(await createEmbedding(c.content));
+      }
+    }
     for (let j = 0; j < slice.length; j++) {
       await pool.query(
         `INSERT INTO document_embeddings (chunk_id, embedding, embedding_model)
