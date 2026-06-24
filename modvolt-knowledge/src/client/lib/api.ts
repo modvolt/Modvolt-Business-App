@@ -38,6 +38,7 @@ export interface Capabilities {
   aiChat: boolean;
   vision: boolean;
   webSearch: boolean;
+  ocr: boolean;
 }
 
 export interface DocumentRow {
@@ -56,6 +57,7 @@ export interface DocumentRow {
   originalFileName: string;
   sizeBytes: number;
   createdAt: string;
+  ocrApplied?: boolean;
   tagIds?: string[];
 }
 
@@ -230,6 +232,8 @@ export const api = {
     }),
   reindexDocument: (id: string) =>
     req<{ ok: boolean }>(`/documents/${id}/reindex`, { method: "POST" }),
+  ocrDocument: (id: string) =>
+    req<{ ok: boolean }>(`/documents/${id}/ocr`, { method: "POST" }),
   deleteDocument: (id: string) =>
     req<{ ok: boolean }>(`/documents/${id}`, { method: "DELETE" }),
   downloadDocument: (id: string) =>

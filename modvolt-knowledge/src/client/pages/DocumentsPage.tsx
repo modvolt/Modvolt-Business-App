@@ -16,7 +16,7 @@ import { DOCUMENT_TYPES } from "../../shared/types.js";
 const DOC_TYPES = DOCUMENT_TYPES;
 
 export function DocumentsPage() {
-  const { user } = useAuth();
+  const { user, capabilities } = useAuth();
   const isAdmin = user?.role === "admin";
   const canWrite = user?.role !== "read_only";
 
@@ -79,6 +79,11 @@ export function DocumentsPage() {
 
   const reindex = async (id: string) => {
     await api.reindexDocument(id);
+    load();
+  };
+
+  const runOcr = async (id: string) => {
+    await api.ocrDocument(id);
     load();
   };
 
@@ -211,6 +216,11 @@ export function DocumentsPage() {
                 <td className="tag">{d.documentType}</td>
                 <td>
                   <span className={`badge ${d.status}`}>{d.status}</span>
+                  {d.ocrApplied && (
+                    <span className="tag" style={{ marginLeft: 6 }}>
+                      OCR
+                    </span>
+                  )}
                 </td>
                 <td className="tag">
                   {d.visibility === "admin_only" ? "Jen admin" : "Všichni"}
@@ -222,6 +232,11 @@ export function DocumentsPage() {
                   {canWrite && (
                     <button className="ghost" onClick={() => reindex(d.id)}>
                       Reindex
+                    </button>
+                  )}
+                  {canWrite && capabilities.ocr && d.status === "needs_ocr" && (
+                    <button className="ghost" onClick={() => runOcr(d.id)}>
+                      Spustit OCR
                     </button>
                   )}
                   {isAdmin && (

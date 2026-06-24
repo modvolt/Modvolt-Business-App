@@ -75,6 +75,12 @@ export const env = {
     embeddingModel: str("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
     enabled: bool("OPENAI_ENABLED", false),
     imageAnalysisEnabled: bool("OPENAI_IMAGE_ANALYSIS_ENABLED", false),
+    // OCR naskenovaných PDF přes vision model. Výchozí stav je vypnuto, aby se
+    // hlídaly náklady (vykreslení + popis každé stránky stojí tokeny).
+    ocrEnabled: bool("OPENAI_OCR_ENABLED", false),
+    // Maximální počet stran zpracovaných při OCR jednoho PDF (ochrana nákladů
+    // a paměti na malém stroji). Delší dokumenty se oříznou.
+    ocrMaxPages: num("OCR_MAX_PAGES", 20),
     maxContextChunks: num("OPENAI_MAX_CONTEXT_CHUNKS", 8),
     maxUploadMb: num("OPENAI_MAX_UPLOAD_MB", 15),
     requestTimeoutMs: num("OPENAI_REQUEST_TIMEOUT_MS", 60000),
@@ -158,6 +164,14 @@ export function isEmbeddingsUsable(): boolean {
 /** Vize navíc vyžaduje zapnutou analýzu obrázků (a multimodální chat model). */
 export function isVisionUsable(): boolean {
   return isOpenAiUsable() && env.openai.imageAnalysisEnabled;
+}
+
+/**
+ * OCR má vlastní přepínač (nezávislý na analýze obrázků), protože je nákladné
+ * a chceme ho zapínat cíleně. Vyžaduje použitelné OpenAI + zapnuté OCR.
+ */
+export function isOcrUsable(): boolean {
+  return isOpenAiUsable() && env.openai.ocrEnabled;
 }
 
 export function isS3Configured(): boolean {

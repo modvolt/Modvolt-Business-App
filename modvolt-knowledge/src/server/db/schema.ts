@@ -68,6 +68,8 @@ export const documents = pgTable(
     sha256Hash: text("sha256_hash").notNull(),
     objectPath: text("object_path").notNull(),
     textExtracted: boolean("text_extracted").notNull().default(false),
+    // True, pokud byl text získán přes OCR (naskenované PDF bez textové vrstvy).
+    ocrApplied: boolean("ocr_applied").notNull().default(false),
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
     // SET NULL: při smazání uživatele zůstane dokument, jen přijde o autora.
     uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, {

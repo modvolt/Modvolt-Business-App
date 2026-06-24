@@ -34,7 +34,8 @@ Categories, tags, indexing, audit, settings, and users pages are admin-gated in 
 **How to apply:** Keep the unique index in lockstep with a migration; never split the versioning mutations out of the transaction.
 
 ## Migration rules
-- Migrations do NOT auto-apply on server start — must be run manually (`npm run db:migrate`) after each deployment.
+- Migrations AUTO-APPLY on server start (server runs pending drizzle migrations before serving; Docker CMD relies on this, no separate db:migrate deploy step). `npm run db:migrate` still exists for manual runs.
+- After editing `db/schema.ts`, run `npm run db:generate` (drizzle-kit, offline OK) to create the next `drizzle/NNNN_*.sql` + update `drizzle/meta`. Server applies it on next start.
 - `db:seed-admin` is one-time bootstrap; safe to re-run (idempotent — won't overwrite existing admin).
 - Migration 0004 added FK CASCADE/SET NULL. It includes orphan-row cleanup at the top to avoid ALTER TABLE failures on existing data.
 - When adding future migrations with FK constraints: always prepend orphan cleanup (DELETE orphans for CASCADE, UPDATE SET NULL for nullable FKs) before the ALTER TABLE statements.
@@ -66,7 +67,7 @@ Categories, tags, indexing, audit, settings, and users pages are admin-gated in 
 - Import session temp files go to `os.tmpdir()` (/tmp), writable by the node user — no extra volume needed.
 
 ## Test / verify commands
-- `npm test` — node:test runner, tsx, 49 tests, no external services needed
+- `npm test` — node:test runner, tsx (`--experimental-test-module-mocks`), no external services needed (mock `../env.js` etc. by relative specifier)
 - `npm run typecheck` — tsc --noEmit
 - `npm run build` — vite (client) + esbuild (server)
 - `npm run verify` — ci + typecheck + test + build (full gate)

@@ -37,6 +37,7 @@ import {
   discardImportSession,
 } from "../documents/import-session.js";
 import { extractText } from "../documents/text-extraction.js";
+import { isOcrUsable } from "../env.js";
 import {
   classifyDocument,
   classificationAvailable,
@@ -891,6 +892,27 @@ documentRouter.post("/:id/reindex", requireWriteAccess, async (req, res) => {
   if (!access.ok) return res.status(access.status).json({ error: access.error });
   await enqueueDocument(req.params.id, "reindex");
   await audit(req, "reindex", "document", req.params.id);
+  res.json({ ok: true });
+});
+
+// Spustit OCR naskenovaného PDF (cílené, řízené přepínačem OPENAI_OCR_ENABLED).
+documentRouter.post("/:id/ocr", requireWriteAccess, async (req, res) => {
+  if (!isOcrUsable()) {
+    return res.status(503).json({ error: "OCR není povolené." });
+  }
+  const access = await loadDocumentForWrite(req.params.id, req.currentUser!);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const doc = access.doc;
+  const isPdf =
+    doc.mimeType === "application/pdf" ||
+    doc.originalFileName.toLowerCase().endsWith(".pdf");
+  if (!isPdf) {
+    return res
+      .status(400)
+      .json({ error: "OCR je dostupné jen pro PDF dokumenty." });
+  }
+  await enqueueDocument(req.params.id, "ocr");
+  await audit(req, "ocr", "document", req.params.id);
   res.json({ ok: true });
 });
 

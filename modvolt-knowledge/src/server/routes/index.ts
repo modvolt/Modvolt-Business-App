@@ -8,6 +8,7 @@ import { adminRouter } from "./admin-routes.js";
 import {
   isChatUsable,
   isVisionUsable,
+  isOcrUsable,
 } from "../env.js";
 import { webSearchAvailable } from "../search/web-search-service.js";
 
@@ -19,6 +20,7 @@ apiRouter.get("/capabilities", (_req, res) => {
     aiChat: isChatUsable(),
     vision: isVisionUsable(),
     webSearch: webSearchAvailable(),
+    ocr: isOcrUsable(),
   });
 });
 

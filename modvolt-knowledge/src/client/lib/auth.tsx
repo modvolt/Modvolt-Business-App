@@ -18,6 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     aiChat: false,
     vision: false,
     webSearch: false,
+    ocr: false,
   });
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +27,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const [me, caps] = await Promise.all([
           api.me().catch(() => ({ user: null })),
-          api.capabilities().catch(() => ({ aiChat: false, vision: false, webSearch: false })),
+          api
+            .capabilities()
+            .catch(() => ({ aiChat: false, vision: false, webSearch: false, ocr: false })),
         ]);
         setUser((me as any).user ?? null);
         setCapabilities(caps);
