@@ -1,0 +1,414 @@
+Jsi senior full-stack engineer a máš opravit projekt Modvolt Knowledge / Modvolt Business App tak, aby správně fungovala interní znalostní databáze firmy Modvolt s AI asistentem.
+
+Neopravuj pouze jednotlivé chyby naslepo. Nejdříve pochop účel programu a potom podle toho oprav architekturu, diagnostiku a indexaci.
+
+============================================================
+ÚČEL PROGRAMU
+=============
+
+Program má být interní znalostní databáze firmy Modvolt.
+
+Hlavní smysl:
+
+* nahrát interní dokumenty, normy, návody, technické listy, postupy, BOZP, servisní poznámky a další firemní znalosti,
+* dokumenty uložit do S3/Object Storage,
+* vytěžit z nich text,
+* text rozdělit na chunky,
+* vytvořit embeddingy přes OpenAI,
+* uložit embeddingy do PostgreSQL s pgvector,
+* umožnit AI asistentovi odpovídat nad interní databází pomocí RAG,
+* u citlivých elektro/normových dotazů používat pouze interní zdroje, nikoliv náhodný web.
+
+Program tedy není obyčejný ChatGPT wrapper. Je to RAG systém:
+
+Uživatel nahraje dokument
+→ dokument se uloží do S3
+→ vznikne indexační úloha
+→ worker vytáhne text
+→ text rozdělí na chunky
+→ chunky se uloží do DB
+→ OpenAI vytvoří embeddingy
+→ embeddingy se uloží do pgvector
+→ AI chat při dotazu vyhledá relevantní chunky
+→ OpenAI odpoví pouze s dodaným kontextem a citacemi.
+
+Pokud nefunguje indexace, AI nemá z čeho odpovídat. Proto je indexační pipeline hlavní priorita.
+
+============================================================
+PROVOZNÍ PROSTŘEDÍ
+==================
+
+Aplikace má běžet na Hetzner serveru přes Coolify.
+
+Coolify deployment musí být kompatibilní s:
+
+* Docker Compose,
+* PostgreSQL s pgvector,
+* S3 compatible storage, ideálně Hetzner Object Storage,
+* OpenAI API,
+* production NODE_ENV.
+
+Nepředpokládej Replit jako runtime. Replit je pouze vývojové prostředí. Výsledek musí být samostatně deployovatelný na Coolify bez závislosti na Replitu.
+
+Důležité:
+
+* Coolify má používat root docker-compose.yml.
+* DB musí být pgvector/pgvector:pg16 nebo jiný PostgreSQL image s dostupným rozšířením vector.
+* Obyčejný postgres:16 nestačí, pokud neumí extension vector.
+* Aplikace nesmí tiše selhat, pokud chybí DATABASE_URL, S3 nebo pgvector.
+* Všechny chyby musí být jasně viditelné v admin UI i logu.
+
+============================================================
+POVINNÉ ENV PROMĚNNÉ
+====================
+
+Zkontroluj a sjednoť očekávané env proměnné.
+
+Minimální production konfigurace:
+
+DATABASE_URL=postgresql://postgres:modvolt_local_db@db:5432/modvolt
+
+S3_ENDPOINT=...
+S3_PUBLIC_ENDPOINT=...
+S3_REGION=...
+S3_BUCKET=...
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_FORCE_PATH_STYLE=true
+
+OPENAI_ENABLED=true
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=
+OPENAI_CHAT_MODEL=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_IMAGE_ANALYSIS_ENABLED=true
+OPENAI_MAX_CONTEXT_CHUNKS=8
+OPENAI_MAX_UPLOAD_MB=50
+OPENAI_REQUEST_TIMEOUT_MS=60000
+OPENAI_MAX_RETRIES=4
+OPENAI_EMBEDDING_BATCH_SIZE=8
+
+SESSION_SECRET=...
+NODE_ENV=production
+PORT=8080
+
+Důležité pravidlo:
+Samotný OPENAI_API_KEY nestačí. AI funkce mají být aktivní pouze při OPENAI_ENABLED=true a platném OPENAI_API_KEY.
+
+Ale pokud OPENAI_ENABLED není true, admin UI musí jasně ukázat:
+"AI je vypnutá, protože OPENAI_ENABLED není true."
+
+============================================================
+HLAVNÍ PROBLÉMY K OPRAVĚ
+========================
+
+Aktuálně projekt nefunguje tak, jak má:
+
+* indexace dokumentů neprobíhá,
+* AI funkce nevrací použitelné odpovědi,
+* není jasně vidět, kde pipeline padá,
+* system-health ukazuje jen povrchní stav,
+* chybí živá AI diagnostika,
+* chybí jasná diagnostika DB/pgvector/S3,
+* skenovaná PDF bez textové vrstvy končí jako needs_ocr,
+* není uživatelsky jasné, jestli dokument má chunky a embeddingy,
+* pokud migrace selžou, worker se vůbec nespustí,
+* pokud OpenAI embeddingy selžou, stav dokumentu není dostatečně vysvětlený.
+
+============================================================
+OPRAV INDEXAČNÍ PIPELINE
+========================
+
+Najdi a oprav celý řetězec indexace:
+
+1. Upload dokumentu
+
+* dokument musí být uložen do S3,
+* metadata musí být v DB,
+* musí vzniknout indexing job,
+* uživatel musí v UI vidět, že dokument čeká na indexaci.
+
+2. Worker
+
+* worker se musí spustit po startu aplikace,
+* worker musí jasně logovat start,
+* worker musí pravidelně hledat queued jobs,
+* při startu aplikace musí resetovat staré zaseknuté processing jobs, například starší než 15 minut, zpět na queued nebo failed,
+* worker nesmí tiše skončit,
+* každá chyba musí být uložena jako last_error.
+
+3. Text extraction
+
+* PDF/DOCX/XLSX/TXT/MD/CSV musí být zpracovány podle typu,
+* pokud PDF obsahuje textovou vrstvu, má být vytěžen text,
+* pokud PDF nemá textovou vrstvu, nastav status needs_ocr a jasně to zobraz v UI,
+* neoznačuj dokument jako indexed, pokud nemá žádný použitelný text.
+
+4. Chunking
+
+* text rozděl na chunky,
+* ulož do document_chunks,
+* u každého dokumentu zobraz počet chunků.
+
+5. Embeddings
+
+* embeddingy vytvářej pouze pokud je OpenAI aktivní,
+* používej OPENAI_EMBEDDING_MODEL,
+* default musí být text-embedding-3-small,
+* DB schéma má vector(1536), proto ověř, že embedding model vrací 1536 dimenzí,
+* pokud model vrátí jinou dimenzi, zastav embedding a zobraz jasnou chybu:
+  "Embedding model vrací X dimenzí, ale databáze očekává vector(1536). Použij text-embedding-3-small nebo změň DB schéma."
+* u každého dokumentu zobraz počet embeddingů.
+
+6. Statusy dokumentů
+   Zaveď nebo sjednoť jasné statusy:
+
+* uploaded
+* queued
+* processing
+* indexed
+* indexed_text_only
+* needs_ocr
+* embedding_failed
+* failed
+
+Neoznačuj dokument jako plně indexed, pokud nemá embeddingy a AI režim embeddingy vyžaduje.
+
+7. Retry
+   Přidej možnost v admin UI:
+
+* retry failed jobs,
+* retry needs_ocr po doplnění OCR,
+* retry konkrétního dokumentu,
+* reindex all.
+
+============================================================
+OPRAV DB A PGVECTOR DIAGNOSTIKU
+===============================
+
+Při startu aplikace ověř:
+
+* DATABASE_URL existuje,
+* DB je dostupná,
+* lze provést SELECT 1,
+* existuje extension vector,
+* existují potřebné tabulky,
+* migrace proběhly,
+* document_embeddings.embedding má správný typ vector(1536).
+
+Pokud pgvector není dostupný, vrať jasnou chybu:
+"PostgreSQL nemá dostupné rozšíření pgvector. Použij image pgvector/pgvector:pg16 nebo nainstaluj extension vector."
+
+V admin UI zobraz:
+
+* DB connected: ano/ne,
+* pgvector available: ano/ne,
+* migrations ok: ano/ne,
+* documents count,
+* chunks count,
+* embeddings count,
+* indexing jobs podle statusu,
+* posledních 20 chyb indexace.
+
+============================================================
+OPRAV OPENAI / AI DIAGNOSTIKU
+=============================
+
+Přidej endpoint:
+
+GET /api/admin/ai-diagnostics
+
+Musí vracet strukturovaný JSON bez úniku tajných klíčů:
+
+* openaiEnabled,
+* hasApiKey,
+* baseUrl,
+* chatModel,
+* embeddingModel,
+* imageAnalysisEnabled,
+* chatTest,
+* embeddingTest,
+* embeddingDimensions,
+* expectedEmbeddingDimensions,
+* dbVectorAvailable,
+* s3Available,
+* indexingWorkerRunning,
+* lastIndexingErrors.
+
+Živě otestuj:
+
+1. Chat model
+
+* pošli krátký testovací request,
+* ověř, že model odpoví.
+
+2. Embedding model
+
+* vytvoř embedding pro text "test",
+* ověř počet dimenzí,
+* ověř, že sedí na DB vector(1536).
+
+3. S3
+
+* ověř, že jde vypsat nebo uložit/smazat malý testovací objekt.
+
+4. DB/pgvector
+
+* ověř SELECT 1,
+* ověř extension vector.
+
+Mapuj chyby srozumitelně:
+
+* 401/403: špatný nebo neautorizovaný OpenAI klíč,
+* 404: model neexistuje nebo je špatně napsaný,
+* 429: limit/kredit/rate limit,
+* timeout: síť nebo firewall,
+* vector unavailable: špatný PostgreSQL image,
+* S3 access denied: špatné S3 klíče nebo bucket policy.
+
+Nikdy nevypisuj OPENAI_API_KEY ani S3_SECRET_ACCESS_KEY.
+
+============================================================
+OPRAV ADMIN UI
+==============
+
+V admin rozhraní přidej přehlednou stránku "AI a indexace".
+
+Musí ukázat:
+
+* stav OpenAI konfigurace,
+* živý výsledek OpenAI testu,
+* stav DB,
+* stav pgvector,
+* stav S3,
+* běží/neběží indexační worker,
+* počet dokumentů,
+* počet chunků,
+* počet embeddingů,
+* frontu indexing_jobs podle statusu,
+* poslední chyby indexace,
+* dokumenty bez chunků,
+* dokumenty bez embeddingů,
+* dokumenty ve stavu needs_ocr,
+* tlačítka retry/reindex.
+
+U každého dokumentu zobraz:
+
+* status,
+* počet chunků,
+* počet embeddingů,
+* poslední chybu,
+* datum poslední indexace,
+* možnost spustit reindex.
+
+============================================================
+AI CHAT / RAG FUNKCE
+====================
+
+Ověř, že AI chat funguje jako RAG:
+
+1. Dotaz uživatele
+2. Embedding dotazu
+3. Vyhledání podobných chunků přes pgvector
+4. Sestavení kontextu
+5. Volání OpenAI chat modelu
+6. Odpověď s citacemi na dokumenty/chunky
+
+Pokud nejsou žádné chunky nebo embeddingy, AI nesmí předstírat znalost. Má říct:
+"V interní databázi jsem nenašel zaindexované zdroje. Zkontrolujte indexaci dokumentů."
+
+Pokud je režim csn_only/internal_only, AI nesmí použít web.
+
+============================================================
+OCR / SKENOVANÁ PDF
+===================
+
+Současný stav needs_ocr je v pořádku jako fallback, ale musí být jasně vysvětlený.
+
+Minimální oprava:
+
+* pokud je dokument sken bez textové vrstvy, zobraz v UI:
+  "Dokument neobsahuje textovou vrstvu. Pro indexaci je potřeba OCR."
+* takový dokument neoznačuj jako indexed.
+
+Lepší oprava:
+
+* pokud OPENAI_IMAGE_ANALYSIS_ENABLED=true, implementuj vision/OCR pipeline:
+
+  * převést první 1–3 stránky PDF na obrázky,
+  * poslat je vision modelu,
+  * vytěžit text,
+  * uložit OCR text,
+  * pokračovat chunkingem a embeddingy.
+
+Pokud OCR/vision pipeline nestihneš plně implementovat, hlavně nepředstírej, že AI sken funguje. Musí být jasně vidět, že dokument čeká na OCR.
+
+============================================================
+CO NECHCI
+=========
+
+Nechci kosmetické opravy bez řešení příčiny.
+
+Nechci, aby aplikace tvrdila "AI enabled", když nebylo provedeno živé ověření OpenAI.
+
+Nechci, aby dokument byl označený jako indexed, když nemá žádné chunky nebo embeddingy.
+
+Nechci, aby worker tiše nefungoval.
+
+Nechci, aby chyby byly vidět jen v server logu.
+
+Nechci závislost na Replit runtime.
+
+Nechci vypsání tajných klíčů do frontendu nebo logů.
+
+============================================================
+AKCEPTAČNÍ TEST
+===============
+
+Po opravě musí jít ověřit tento scénář:
+
+1. Spustím aplikaci přes docker-compose s pgvector DB.
+2. Admin UI ukáže:
+
+   * DB connected,
+   * pgvector available,
+   * S3 available,
+   * OpenAI chat test OK,
+   * OpenAI embedding test OK,
+   * embedding dimensions 1536/1536.
+3. Nahraju malé textové PDF.
+4. Vznikne indexing job.
+5. Worker job zpracuje.
+6. Dokument má status indexed.
+7. Dokument má chunks > 0.
+8. Dokument má embeddings > 0.
+9. V AI chatu se zeptám na obsah dokumentu.
+10. AI odpoví podle dokumentu a uvede citaci/zdroj.
+11. Nahraju skenované PDF bez textu.
+12. Dokument neskončí falešně jako indexed, ale jasně jako needs_ocr nebo je zpracován vision/OCR pipeline.
+13. Pokud vypnu OPENAI_ENABLED, admin UI jasně řekne, že AI je konfiguračně vypnutá.
+14. Pokud použiju špatný embedding model, admin UI ukáže chybu dimenze.
+15. Pokud DB není pgvector, aplikace jasně ukáže chybu pgvector, ne obecné selhání indexace.
+
+============================================================
+PŘED ODEVZDÁNÍM SPUSŤ
+=====================
+
+Spusť:
+
+npm run typecheck
+npm run build
+
+Pokud existují testy, spusť je také. Pokud testy vyžadují DATABASE_URL, uprav je tak, aby:
+
+* buď používaly testovací DB,
+* nebo byly korektně přeskočené bez DATABASE_URL,
+* ale nesmí padat nekontrolovaně při obyčejném npm test.
+
+Na závěr vypiš:
+
+* co bylo opraveno,
+* jaké soubory byly změněny,
+* jaké env proměnné jsou nutné,
+* přesný postup ověření v Coolify,
+* jak poznám, že indexace opravdu běží.
