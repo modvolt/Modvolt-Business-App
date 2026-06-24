@@ -85,7 +85,7 @@ async function claimNextJob(): Promise<{
   };
 }
 
-async function processJob(
+export async function processJob(
   jobId: string,
   documentId: string,
   jobType: string,
