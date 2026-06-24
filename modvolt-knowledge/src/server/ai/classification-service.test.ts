@@ -17,12 +17,10 @@ mock.module("../env.js", {
 mock.module("./openai-client.js", {
   namedExports: {
     getOpenAi: () => ({
-      chat: {
-        completions: {
-          create: async () => {
-            createCalls += 1;
-            return { choices: [{ message: { content: chatResponse } }] };
-          },
+      responses: {
+        create: async () => {
+          createCalls += 1;
+          return { output_text: chatResponse };
         },
       },
     }),

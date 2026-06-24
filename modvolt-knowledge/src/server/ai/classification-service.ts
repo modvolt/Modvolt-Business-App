@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { getOpenAi } from "./openai-client.js";
-import { env, isChatUsable } from "../env.js";
+import { createJsonResponse } from "./openai-responses.js";
+import { isChatUsable } from "../env.js";
 import { DOCUMENT_TYPES } from "../../shared/types.js";
 import type { DocumentType } from "../../shared/types.js";
 import { logger } from "../lib/logger.js";
@@ -109,15 +109,11 @@ export async function classifyDocument(
 
   let raw: string;
   try {
-    const completion = await getOpenAi().chat.completions.create({
-      model: env.openai.chatModel,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: buildSystemPrompt(input) },
-        { role: "user", content: userContent },
-      ],
-    });
-    raw = completion.choices[0]?.message?.content ?? "{}";
+    raw =
+      (await createJsonResponse({
+        system: buildSystemPrompt(input),
+        user: userContent,
+      })) || "{}";
   } catch (err) {
     logger.warn("AI klasifikace dokumentu selhala", String(err));
     return null;

@@ -1,5 +1,5 @@
-import { getOpenAi } from "./openai-client.js";
-import { env, isVisionUsable } from "../env.js";
+import { createVisionResponse } from "./openai-responses.js";
+import { isVisionUsable } from "../env.js";
 import { imageToDataUrl } from "../documents/image-processing.js";
 import { ServiceUnavailableError } from "../lib/errors.js";
 
@@ -16,22 +16,11 @@ export async function describeImage(imageBuffer: Buffer): Promise<string> {
     throw new ServiceUnavailableError("Analýza obrazu není dostupná.");
   }
   const dataUrl = imageToDataUrl(imageBuffer);
-  const res = await getOpenAi().chat.completions.create({
-    model: env.openai.chatModel,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Jsi technik elektro. Popiš pouze to, co je na fotografii skutečně vidět (zařízení, štítky, zapojení, viditelné závady). Neodhaduj hodnoty, které nelze z fotografie bezpečně určit. Odpovídej česky, stručně, v odrážkách.",
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Popiš tuto fotografii z pohledu elektrotechnika." },
-          { type: "image_url", image_url: { url: dataUrl } },
-        ],
-      },
-    ],
+  const text = await createVisionResponse({
+    system:
+      "Jsi technik elektro. Popiš pouze to, co je na fotografii skutečně vidět (zařízení, štítky, zapojení, viditelné závady). Neodhaduj hodnoty, které nelze z fotografie bezpečně určit. Odpovídej česky, stručně, v odrážkách.",
+    userText: "Popiš tuto fotografii z pohledu elektrotechnika.",
+    imageDataUrl: dataUrl,
   });
-  return res.choices[0]?.message?.content?.trim() ?? "";
+  return text.trim();
 }

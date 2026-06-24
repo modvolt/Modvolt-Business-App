@@ -71,7 +71,7 @@ export const env = {
     // Jeden chat model obsluhuje chat, klasifikaci i popis fotek (pro analýzu
     // obrázků musí být multimodální). Embeddingy vyžadují samostatný embedding
     // model – chat model embeddingy spočítat neumí.
-    chatModel: str("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+    chatModel: str("OPENAI_CHAT_MODEL", "gpt-5.5"),
     embeddingModel: str("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
     enabled: bool("OPENAI_ENABLED", false),
     imageAnalysisEnabled: bool("OPENAI_IMAGE_ANALYSIS_ENABLED", false),

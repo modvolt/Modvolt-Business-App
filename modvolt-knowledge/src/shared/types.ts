@@ -86,3 +86,24 @@ export interface SessionUser {
   email: string;
   role: UserRole;
 }
+
+export interface AiCheckResult {
+  ok: boolean;
+  cause: string | null;
+}
+
+export interface AiDiagnostics {
+  openaiEnabled: boolean;
+  hasKey: boolean;
+  baseUrl: string | null;
+  chatModel: string;
+  embeddingModel: string;
+  imageAnalysisEnabled: boolean;
+  expectedDimension: number;
+  actualDimension: number | null;
+  dimensionMatch: boolean | null;
+  pgvectorAvailable: boolean;
+  chatTest: AiCheckResult;
+  embeddingTest: AiCheckResult;
+  counts: { chunks: number; embeddings: number };
+}

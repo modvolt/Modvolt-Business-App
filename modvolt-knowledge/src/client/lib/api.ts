@@ -1,4 +1,9 @@
-import type { SessionUser, AiAnswer, SourceMode } from "../../shared/types.js";
+import type {
+  SessionUser,
+  AiAnswer,
+  SourceMode,
+  AiDiagnostics,
+} from "../../shared/types.js";
 
 async function req<T>(
   path: string,
@@ -327,4 +332,5 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ documentId }),
     }),
+  aiDiagnostics: () => req<AiDiagnostics>("/admin/ai-diagnostics"),
 };

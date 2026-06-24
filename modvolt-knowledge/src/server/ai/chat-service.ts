@@ -1,4 +1,5 @@
-import { getOpenAi } from "./openai-client.js";
+import { createJsonResponse } from "./openai-responses.js";
+import { describeOpenAiError } from "./openai-errors.js";
 import { env, isChatUsable } from "../env.js";
 import { DEFAULT_PROMPT_VERSION } from "./prompts/index.js";
 import { resolvePrompt } from "./prompts/prompt-store.js";
@@ -16,29 +17,6 @@ import { sanitizeWebText } from "../search/web-sanitize.js";
 import type { AiAnswer, SourceMode } from "../../shared/types.js";
 import { logger } from "../lib/logger.js";
 import { ServiceUnavailableError } from "../lib/errors.js";
-
-/**
- * Převede chybu od OpenAI na srozumitelnou, uživatelsky bezpečnou hlášku
- * podle HTTP statusu. Cílem je, aby admin hned viděl pravou příčinu
- * (špatný klíč, neexistující model, vyčerpaný kredit) místo obecné chyby.
- */
-function describeOpenAiError(
-  e: { status?: number; code?: string; message?: string },
-  model: string,
-): string {
-  if (e?.status === 401 || e?.status === 403) {
-    return "AI služba není dostupná: neplatný nebo chybějící OPENAI_API_KEY.";
-  }
-  if (e?.status === 404 || e?.code === "model_not_found") {
-    return `AI služba není dostupná: model „${model}" neexistuje – zkontrolujte OPENAI_CHAT_MODEL.`;
-  }
-  if (e?.status === 429) {
-    return "AI služba není dostupná: překročen limit požadavků nebo vyčerpaný kredit u poskytovatele AI.";
-  }
-  return `AI služba není dostupná: chyba poskytovatele AI${
-    e?.status ? ` (HTTP ${e.status})` : ""
-  }.`;
-}
 
 export interface AskOptions {
   query: string;
@@ -139,16 +117,13 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
       : ""
   }DOSTUPNÉ ZDROJE:\n${contextBlock}`;
 
-  let completion;
+  let raw: string;
   try {
-    completion = await getOpenAi().chat.completions.create({
-      model: env.openai.chatModel,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    });
+    raw =
+      (await createJsonResponse({
+        system: systemPrompt,
+        user: userContent,
+      })) || "{}";
   } catch (err) {
     // Chybu od poskytovatele AI převedeme na konkrétní 503 hlášku, aby uživatel
     // (a admin) viděl skutečnou příčinu místo obecného „Interní chyba serveru".
@@ -161,8 +136,6 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
     });
     throw new ServiceUnavailableError(describeOpenAiError(e, env.openai.chatModel));
   }
-
-  const raw = completion.choices[0]?.message?.content ?? "{}";
   const answer = parseAnswer(raw, decision.sourceMode, decision);
   if (imageObservations.length && answer.imageObservations?.length === 0) {
     answer.imageObservations = imageObservations;

@@ -395,3 +395,12 @@ adminRouter.get("/system-health", async (_req, res) => {
   const info = await collectSystemHealth();
   res.status(info.status === "ok" ? 200 : 503).json(info);
 });
+
+// Živá diagnostika AI (vyžaduje admin). Skutečně otestuje chat i embedding
+// model, ověří rozměr vektoru proti DB, dostupnost pgvector a počty
+// chunků/embeddingů. Nikdy nevrací API klíč ani jiné tajné hodnoty.
+adminRouter.get("/ai-diagnostics", async (_req, res) => {
+  const { collectAiDiagnostics } = await import("../ai/diagnostics.js");
+  const info = await collectAiDiagnostics();
+  res.json(info);
+});
