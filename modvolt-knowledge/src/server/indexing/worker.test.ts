@@ -27,6 +27,28 @@ let docState: Record<string, unknown> = {};
 let jobState: Record<string, unknown> = {};
 let failedViaPool = false;
 
+// --- Stav pro testy embeddingů (embedChunks: dávka -> fallback po jednom) ----
+let embeddingsOn = false;
+// Když je nastaveno, chunkText vrátí přesně tyto chunky (jinak default 1 chunk).
+let chunkOverride:
+  | {
+      chunkIndex: number;
+      pageNumber: number;
+      sectionTitle: string | null;
+      content: string;
+      tokenCount: number;
+    }[]
+  | null = null;
+let batchSize = 1;
+// Záznam volání: každé volání createEmbeddings (dávka) a createEmbedding (po jednom).
+let embedBatchCalls: string[][] = [];
+let embedSingleCalls: string[] = [];
+// Co skončilo zapsané do document_embeddings (chunk_id v pořadí vložení).
+let embeddingInserts: string[] = [];
+// Řízení selhání: vrať true a daný vstup "selže".
+let batchShouldFail: (texts: string[]) => boolean = () => false;
+let singleShouldFail: (text: string) => boolean = () => false;
+
 const fakeDb = {
   select() {
     return {
@@ -67,9 +89,12 @@ const fakeDb = {
 };
 
 const fakePool = {
-  query: async (sql: string) => {
+  query: async (sql: string, params?: unknown[]) => {
     if (/UPDATE indexing_jobs SET status='failed'/.test(sql)) {
       failedViaPool = true;
+    }
+    if (/INSERT INTO document_embeddings/.test(sql)) {
+      embeddingInserts.push(String(params?.[0]));
     }
     return { rows: [] };
   },
@@ -93,8 +118,9 @@ mock.module("../documents/text-extraction.js", {
 
 mock.module("../documents/chunking.js", {
   namedExports: {
-    chunkText: (text: string) =>
-      text.trim().length === 0
+    chunkText: (text: string) => {
+      if (chunkOverride) return chunkOverride;
+      return text.trim().length === 0
         ? []
         : [
             {
@@ -104,22 +130,38 @@ mock.module("../documents/chunking.js", {
               content: text,
               tokenCount: 5,
             },
-          ],
+          ];
+    },
   },
 });
 
 mock.module("../ai/embeddings.js", {
   namedExports: {
-    embeddingsAvailable: () => false,
-    createEmbedding: async () => [],
-    createEmbeddings: async () => [],
+    embeddingsAvailable: () => embeddingsOn,
+    createEmbedding: async (text: string) => {
+      embedSingleCalls.push(text);
+      if (singleShouldFail(text)) throw new Error("single failed");
+      return [0.3, 0.4];
+    },
+    createEmbeddings: async (texts: string[]) => {
+      embedBatchCalls.push(texts);
+      if (batchShouldFail(texts)) throw new Error("batch failed");
+      return texts.map(() => [0.1, 0.2]);
+    },
     toVectorLiteral: () => "[]",
   },
 });
 
 mock.module("../env.js", {
   namedExports: {
-    env: { openai: { embeddingBatchSize: 1, embeddingModel: "m" } },
+    env: {
+      openai: {
+        get embeddingBatchSize() {
+          return batchSize;
+        },
+        embeddingModel: "m",
+      },
+    },
     isOcrUsable: () => ocrUsable,
   },
 });
@@ -163,7 +205,26 @@ beforeEach(() => {
   docState = {};
   jobState = {};
   failedViaPool = false;
+  embeddingsOn = false;
+  chunkOverride = null;
+  batchSize = 1;
+  embedBatchCalls = [];
+  embedSingleCalls = [];
+  embeddingInserts = [];
+  batchShouldFail = () => false;
+  singleShouldFail = () => false;
 });
+
+// Pomocník: dokument s textovou vrstvou (jde rovnou do embeddingové cesty).
+function chunk(content: string, i: number) {
+  return {
+    chunkIndex: i,
+    pageNumber: 1,
+    sectionTitle: null,
+    content,
+    tokenCount: 5,
+  };
+}
 
 // --- Rozhodnutí, zda vůbec spustit OCR -------------------------------------
 
@@ -259,4 +320,82 @@ test("úspěšné OCR označí dokument jako indexed s OCR příznakem", async (
   assert.equal(docState.status, "indexed");
   assert.equal(docState.ocrApplied, true);
   assert.equal(docState.textExtracted, true);
+});
+
+// --- Embeddingy: dávkování a fallback po jednom chunku ----------------------
+// embedChunks počítá embeddingy po dávkách; když dávka selže (síťové „Premature
+// close" nebo jeden vadný chunk), degraduje na embedding po jednom chunku, aby
+// jeden problém nepoložil celý dokument. U jediného chunku se chyba vyhodí
+// (žádná nekonečná degradace). Tyto testy jdou skrz textovou vrstvu dokumentu
+// (needsOcr=false), takže se dostaneme rovnou do indexační/embeddingové cesty.
+
+test("zdravá dávka zaembedduje všechny chunky jedním voláním", async () => {
+  embeddingsOn = true;
+  batchSize = 10;
+  chunkOverride = [chunk("A", 0), chunk("B", 1), chunk("C", 2)];
+  extraction = { needsOcr: false, fullText: "nezáleží – chunky řídí override" };
+
+  await processJob("job-1", "doc-1", "index");
+
+  // Jedno dávkové volání se všemi třemi texty, žádný fallback po jednom.
+  assert.equal(embedBatchCalls.length, 1);
+  assert.deepEqual(embedBatchCalls[0], ["A", "B", "C"]);
+  assert.equal(embedSingleCalls.length, 0);
+  // Všechny tři chunky se zapsaly do document_embeddings.
+  assert.deepEqual(embeddingInserts, ["chunk-0", "chunk-1", "chunk-2"]);
+  assert.equal(docState.status, "indexed");
+});
+
+test("selhání dávky (>1 chunk) degraduje na embedding po jednom", async () => {
+  embeddingsOn = true;
+  batchSize = 10;
+  chunkOverride = [chunk("A", 0), chunk("B", 1), chunk("C", 2)];
+  batchShouldFail = () => true;
+  extraction = { needsOcr: false, fullText: "x" };
+
+  await processJob("job-1", "doc-1", "index");
+
+  // Dávka se zkusila jednou, pak fallback po jednom pro každý chunk.
+  assert.equal(embedBatchCalls.length, 1);
+  assert.deepEqual(embedSingleCalls, ["A", "B", "C"]);
+  // Úspěšné chunky se přesto zapíšou po pádu dávky.
+  assert.deepEqual(embeddingInserts, ["chunk-0", "chunk-1", "chunk-2"]);
+  assert.equal(docState.status, "indexed");
+  assert.equal(failedViaPool, false);
+});
+
+test("selhání u jediného chunku se vyhodí (žádná nekonečná degradace)", async () => {
+  embeddingsOn = true;
+  batchSize = 1;
+  chunkOverride = [chunk("A", 0)];
+  batchShouldFail = () => true;
+  extraction = { needsOcr: false, fullText: "x" };
+
+  await processJob("job-1", "doc-1", "index");
+
+  // Dávka o jednom chunku padla -> rovnou vyhozeno, žádný fallback po jednom.
+  assert.equal(embedBatchCalls.length, 1);
+  assert.equal(embedSingleCalls.length, 0);
+  assert.deepEqual(embeddingInserts, []);
+  // Chyba probublá až do processJob, dokument skončí jako failed.
+  assert.equal(docState.status, "failed");
+  assert.equal(failedViaPool, true);
+});
+
+test("po pádu dávky se zaembeddují i ostatní dávky (izolace selhání)", async () => {
+  embeddingsOn = true;
+  batchSize = 2;
+  chunkOverride = [chunk("A", 0), chunk("B", 1), chunk("C", 2), chunk("D", 3)];
+  // Selže jen první dávka (["A","B"]); druhá dávka (["C","D"]) projde.
+  batchShouldFail = (texts) => texts.includes("A");
+  extraction = { needsOcr: false, fullText: "x" };
+
+  await processJob("job-1", "doc-1", "index");
+
+  // Dvě dávková volání; fallback po jednom jen pro první dávku.
+  assert.equal(embedBatchCalls.length, 2);
+  assert.deepEqual(embedSingleCalls, ["A", "B"]);
+  // Všechny čtyři chunky nakonec zapsané (první dávka přes fallback, druhá přímo).
+  assert.deepEqual(embeddingInserts, ["chunk-0", "chunk-1", "chunk-2", "chunk-3"]);
+  assert.equal(docState.status, "indexed");
 });
