@@ -79,3 +79,4 @@ externalPort = 3000
 
 [userenv.shared]
 OPENAI_ENABLED = "true"
+OPENAI_OCR_ENABLED = "true"
