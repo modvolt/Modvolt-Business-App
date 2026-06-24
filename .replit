@@ -74,3 +74,8 @@ externalPort = 3001
 [[ports]]
 localPort = 24678
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+OPENAI_ENABLED = "true"
