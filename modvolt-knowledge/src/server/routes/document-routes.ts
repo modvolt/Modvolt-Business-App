@@ -41,6 +41,14 @@ import {
   deleteImportEntry,
   discardImportSession,
 } from "../documents/import-session.js";
+import {
+  createUploadSession,
+  readUploadSession,
+  writeChunk,
+  receivedChunks,
+  assembleFile,
+  deleteUploadSession,
+} from "../documents/upload-session.js";
 import { extractText } from "../documents/text-extraction.js";
 import { isOcrUsable } from "../env.js";
 import {
@@ -103,6 +111,14 @@ const bulkUpload = multer({
     fileSize: env.bulk.maxArchiveMb * 1024 * 1024,
     files: env.bulk.maxArchives,
   },
+});
+
+// Velikost jedné části při nahrávání po částech (chunked upload). Musí sednout
+// s klientem; server přijme i o něco větší část (rezerva na overhead multipartu).
+const BULK_CHUNK_SIZE = 5 * 1024 * 1024;
+const chunkUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: BULK_CHUNK_SIZE + 1024 * 1024 },
 });
 
 function parseBoolFlag(value: unknown): boolean {
@@ -517,6 +533,186 @@ documentRouter.get("/bulk/:jobId", async (req, res) => {
     lastError: job.lastError,
   });
 });
+
+// ── Hromadný import: ODOLNÉ nahrávání po částech (chunked / resumable) ──────────
+// Velké archivy se z prohlížeče nahrávají po malých částech (~5 MB), každá jako
+// samostatný krátký požadavek. Na nestálém připojení tak výpadek shodí jen jednu
+// část (klient ji zopakuje), ne celý soubor, a žádný jediný obří požadavek
+// nespadne na timeout reverzní proxy (typická příčina chyby 502).
+
+// Ověří vlastnictví relace nahrávání (zakladatel nebo admin) – ochrana proti IDOR.
+function ownsUploadSession(
+  req: { currentUser?: { id: string; role: string } },
+  meta: { userId: string },
+): boolean {
+  const u = req.currentUser!;
+  return u.role === "admin" || meta.userId === u.id;
+}
+
+// (1) Zahájení relace: klient pošle seznam souborů (název + velikost). Server
+// založí relaci na disku a vrátí její ID + velikost části.
+documentRouter.post("/bulk/session", requireWriteAccess, async (req, res) => {
+  const rawFiles = Array.isArray(req.body?.files) ? req.body.files : null;
+  if (!rawFiles || rawFiles.length === 0) {
+    return res.status(400).json({ error: "Chybí seznam souborů." });
+  }
+  if (rawFiles.length > env.bulk.maxArchives) {
+    return res
+      .status(400)
+      .json({ error: `Najednou lze nahrát nejvýše ${env.bulk.maxArchives} souborů.` });
+  }
+  const maxBytes = env.bulk.maxArchiveMb * 1024 * 1024;
+  const files: { name: string; size: number; lastModified: number }[] = [];
+  for (const f of rawFiles) {
+    const name = typeof f?.name === "string" ? f.name : "";
+    const size = Number(f?.size);
+    if (!name || !Number.isFinite(size) || size < 0) {
+      return res.status(400).json({ error: "Neplatný popis souboru." });
+    }
+    if (size > maxBytes) {
+      return res.status(400).json({
+        error: `Soubor „${name}" je větší než povolených ${env.bulk.maxArchiveMb} MB.`,
+      });
+    }
+    const lastModified = Number(f?.lastModified);
+    files.push({
+      name: decodeMultipartFilename(name),
+      size,
+      lastModified: Number.isFinite(lastModified) ? lastModified : 0,
+    });
+  }
+
+  const autoClassify =
+    parseBoolFlag(req.body?.autoClassify) && classificationAvailable();
+  const uploadId = randomUUID();
+  await createUploadSession({
+    uploadId,
+    userId: req.currentUser!.id,
+    autoClassify,
+    createdAt: Date.now(),
+    files,
+  });
+  return res
+    .status(201)
+    .json({ uploadId, chunkSize: BULK_CHUNK_SIZE, autoClassify });
+});
+
+// (2) Stav relace pro obnovení: které části jednotlivých souborů už server má.
+documentRouter.get(
+  "/bulk/session/:uploadId",
+  requireWriteAccess,
+  async (req, res) => {
+    const meta = await readUploadSession(req.params.uploadId);
+    if (!meta) return res.status(404).json({ error: "Relace nenalezena." });
+    if (!ownsUploadSession(req, meta)) {
+      return res.status(403).json({ error: "K této relaci nemáte přístup." });
+    }
+    const received = await Promise.all(
+      meta.files.map((_, i) => receivedChunks(meta.uploadId, i)),
+    );
+    return res.json({
+      uploadId: meta.uploadId,
+      chunkSize: BULK_CHUNK_SIZE,
+      files: meta.files.map((f, i) => ({
+        name: f.name,
+        size: f.size,
+        lastModified: f.lastModified ?? 0,
+        received: received[i],
+      })),
+    });
+  },
+);
+
+// (3) Příjem jedné části. Idempotentní (opakované zaslání jen přepíše).
+documentRouter.post(
+  "/bulk/session/:uploadId/chunk",
+  requireWriteAccess,
+  chunkUpload.single("chunk"),
+  async (req, res) => {
+    const meta = await readUploadSession(req.params.uploadId);
+    if (!meta) return res.status(404).json({ error: "Relace nenalezena." });
+    if (!ownsUploadSession(req, meta)) {
+      return res.status(403).json({ error: "K této relaci nemáte přístup." });
+    }
+    const fileIndex = Number(req.body?.fileIndex);
+    const chunkIndex = Number(req.body?.chunkIndex);
+    if (
+      !Number.isInteger(fileIndex) ||
+      fileIndex < 0 ||
+      fileIndex >= meta.files.length ||
+      !Number.isInteger(chunkIndex) ||
+      chunkIndex < 0
+    ) {
+      return res.status(400).json({ error: "Neplatné určení části." });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "Chybí data části." });
+    }
+    await writeChunk(meta.uploadId, fileIndex, chunkIndex, req.file.buffer);
+    return res.json({ ok: true });
+  },
+);
+
+// (4) Dokončení: spojí části do výsledných souborů, ověří velikosti, založí job
+// a vrátí jeho ID (202). Vlastní zpracování pak běží na pozadí jako u /bulk.
+documentRouter.post(
+  "/bulk/session/:uploadId/commit",
+  requireWriteAccess,
+  async (req, res) => {
+    const meta = await readUploadSession(req.params.uploadId);
+    if (!meta) return res.status(404).json({ error: "Relace nenalezena." });
+    if (!ownsUploadSession(req, meta)) {
+      return res.status(403).json({ error: "K této relaci nemáte přístup." });
+    }
+
+    const sources: { path: string; originalName: string }[] = [];
+    try {
+      for (let i = 0; i < meta.files.length; i++) {
+        const dest = path.join(BULK_TMP_DIR, randomUUID());
+        const total = await assembleFile(meta.uploadId, i, dest);
+        if (total !== meta.files[i].size) {
+          await rm(dest, { force: true }).catch(() => {});
+          throw new Error(
+            `Soubor „${meta.files[i].name}" je neúplný – zopakujte nahrávání.`,
+          );
+        }
+        sources.push({ path: dest, originalName: meta.files[i].name });
+      }
+
+      const [job] = await db
+        .insert(bulkImportJobs)
+        .values({
+          status: "queued",
+          createdByUserId: req.currentUser!.id,
+          autoClassify: meta.autoClassify,
+          sources,
+        })
+        .returning({ id: bulkImportJobs.id });
+
+      await audit(req, "bulk_import", "document", undefined, {
+        archives: sources.length,
+        autoClassify: meta.autoClassify,
+        jobId: job.id,
+      });
+
+      await deleteUploadSession(meta.uploadId);
+      triggerBulkImport();
+      return res
+        .status(202)
+        .json({ jobId: job.id, autoClassify: meta.autoClassify });
+    } catch (err) {
+      // Nepodařilo se sestavit/založit – uklidíme již spojené výsledné soubory,
+      // ať v /tmp nezůstanou bez vlastníka. Relaci ponecháme (klient může commit
+      // zopakovat); úklid stálých relací řeší cleanup při startu.
+      await Promise.all(
+        sources.map((s) => rm(s.path, { force: true }).catch(() => {})),
+      );
+      const message =
+        err instanceof Error ? err.message : "Dokončení nahrávání selhalo.";
+      return res.status(400).json({ error: message });
+    }
+  },
+);
 
 // (a) Hromadná analýza: přijme více souborů, extrahuje text, vrátí pro každý
 // soubor AI návrh klasifikace + detekci duplicit. Každý soubor se zpracuje

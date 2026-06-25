@@ -1410,10 +1410,11 @@ function BulkImport({
     setError("");
     setUploadPct(0);
     try {
-      const form = new FormData();
-      for (const f of files) form.append("files", f);
-      if (autoClassify && aiAvailable) form.append("autoClassify", "true");
-      const res = await api.bulkImport(form, setUploadPct);
+      const res = await api.bulkImport(
+        files,
+        autoClassify && aiAvailable,
+        setUploadPct,
+      );
       setJobId(res.jobId);
       setFiles([]);
     } catch (err) {

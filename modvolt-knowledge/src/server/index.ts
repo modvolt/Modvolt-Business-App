@@ -4,6 +4,7 @@ import { logger } from "./lib/logger.js";
 import { runMigrations } from "./db/migrate.js";
 import { startIndexingWorker } from "./indexing/worker.js";
 import { startBulkImportWorker } from "./indexing/bulk-import-worker.js";
+import { cleanupStaleUploadSessions } from "./documents/upload-session.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -66,10 +67,24 @@ async function main() {
 
   startIndexingWorker();
   startBulkImportWorker();
+  // Úklid opuštěných (nedokončených) relací nahrávání po částech, starších 24 h.
+  // Spustí se při startu a pak periodicky, aby na malém VPS nerostl /tmp donekonečna.
+  const UPLOAD_SESSION_MAX_AGE = 24 * 60 * 60 * 1000;
+  void cleanupStaleUploadSessions(UPLOAD_SESSION_MAX_AGE);
+  const sessionGc = setInterval(() => {
+    void cleanupStaleUploadSessions(UPLOAD_SESSION_MAX_AGE);
+  }, 60 * 60 * 1000);
+  sessionGc.unref();
 
-  app.listen(env.port, "0.0.0.0", () => {
+  const server = app.listen(env.port, "0.0.0.0", () => {
     logger.info(`Modvolt Knowledge běží na portu ${env.port} (${env.nodeEnv}).`);
   });
+  // Velké/pomalé uploady (i po částech) nesmí padnout na výchozí 5min limit na
+  // tělo požadavku → 0 = bez limitu. keepAlive delší než u proxy, ať se spojení
+  // recykluje a nevzniká 502 z předčasně zavřeného socketu.
+  server.requestTimeout = 0;
+  server.headersTimeout = 65_000;
+  server.keepAliveTimeout = 75_000;
 }
 
 main().catch((err) => {

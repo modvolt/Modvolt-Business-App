@@ -1,6 +1,6 @@
 - [Modvolt Knowledge constraints](modvolt-knowledge.md) — standalone RAG app, zero Replit runtime dep; citation grounding + dedup/versioning invariants.
 - [Runtime-tunable admin settings](modvolt-runtime-settings.md) — ČSN lock keywords + active prompt version live in app_settings, read at runtime with a safety floor; new defaults need db:migrate.
-- [Batch import design](modvolt-batch-import.md) — analyze+commit are stateless (client re-uploads files); per-file isolation; AI suggestions constrained to enum + existing records.
+- [Batch & bulk import design](modvolt-batch-import.md) — 3 flows: stateless manual-review batch; bulk job queue (502 fix); chunked+resumable upload transport (2nd 502 fix, name+size+mtime resume identity).
 - [ZIP import session store](modvolt-zip-import-session.md) — zip entries kept server-side on disk, referenced by token+entryId; client gets only metadata, no base64 round-trip.
 - [Reclassify existing docs](modvolt-reclassify.md) — bulk AI re-sort of stored docs; metadata-only changes need no reindex (search JOINs type/title live).
 - [Modvolt AI Responses API](modvolt-ai-responses-api.md) — chat/classification/vision via Responses API helpers; embeddings stay separate; live check at /admin/ai-diagnostics.

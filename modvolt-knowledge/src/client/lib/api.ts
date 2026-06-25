@@ -34,6 +34,239 @@ async function req<T>(
   return data as T;
 }
 
+// Výchozí velikost části (server může vrátit jinou při zahájení relace).
+const BULK_CHUNK_SIZE = 5 * 1024 * 1024;
+const CHUNK_RETRIES = 4;
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Trvalá chyba (4xx mimo 429) – nemá smysl opakovat.
+class PermanentUploadError extends Error {}
+
+async function postChunkWithRetry(
+  uploadId: string,
+  fileIndex: number,
+  chunkIndex: number,
+  blob: Blob,
+): Promise<void> {
+  let lastErr: Error = new Error("Nahrávání části selhalo.");
+  for (let attempt = 0; attempt <= CHUNK_RETRIES; attempt++) {
+    try {
+      const fd = new FormData();
+      fd.append("fileIndex", String(fileIndex));
+      fd.append("chunkIndex", String(chunkIndex));
+      fd.append("chunk", blob);
+      const res = await fetch(
+        `/api/documents/bulk/session/${uploadId}/chunk`,
+        { method: "POST", credentials: "include", body: fd },
+      );
+      if (res.ok) return;
+      // 4xx (kromě 429) je trvalá chyba – přestaň zkoušet.
+      if (res.status < 500 && res.status !== 429) {
+        const e = await res.json().catch(() => ({}));
+        throw new PermanentUploadError(
+          e?.error || `Nahrávání části selhalo (${res.status}).`,
+        );
+      }
+      lastErr = new Error(`Server odpověděl ${res.status}.`);
+    } catch (err) {
+      if (err instanceof PermanentUploadError) throw err;
+      // Síťová chyba / výpadek připojení – zkusíme znovu.
+      lastErr = err instanceof Error ? err : new Error(String(err));
+    }
+    if (attempt < CHUNK_RETRIES) {
+      await delay(Math.min(1000 * 2 ** attempt, 8000));
+    }
+  }
+  throw lastErr;
+}
+
+// Obnovení přerušeného nahrávání: ID relace si pamatujeme v localStorage spolu
+// s "podpisem" výběru souborů (názvy+velikosti). Když uživatel po výpadku zkusí
+// nahrát tytéž soubory znovu, navážeme na rozdělanou relaci a přeskočíme části,
+// které server už má (nenahráváme znovu celých 208 MB).
+const RESUME_KEY = "modvolt.bulkUpload";
+
+function uploadSignature(files: File[], autoClassify: boolean): string {
+  // Identita zahrnuje i čas změny – jiný/přegenerovaný soubor se stejným názvem
+  // i velikostí má jiný timestamp, takže se na starou relaci omylem nenaváže.
+  return JSON.stringify({
+    a: autoClassify,
+    f: files.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
+  });
+}
+
+function loadResume(
+  signature: string,
+): { uploadId: string; chunkSize: number } | null {
+  try {
+    const raw = localStorage.getItem(RESUME_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (v && v.signature === signature && typeof v.uploadId === "string") {
+      return {
+        uploadId: v.uploadId,
+        chunkSize: Number(v.chunkSize) || BULK_CHUNK_SIZE,
+      };
+    }
+  } catch {
+    /* nečitelné / nedostupné úložiště – prostě začneme znovu */
+  }
+  return null;
+}
+
+function saveResume(
+  uploadId: string,
+  signature: string,
+  chunkSize: number,
+): void {
+  try {
+    localStorage.setItem(
+      RESUME_KEY,
+      JSON.stringify({ uploadId, signature, chunkSize }),
+    );
+  } catch {
+    /* např. soukromý režim – obnovení pak nebude dostupné, nevadí */
+  }
+}
+
+function clearResume(): void {
+  try {
+    localStorage.removeItem(RESUME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function uploadBulkChunked(
+  files: File[],
+  autoClassify: boolean,
+  onProgress?: (pct: number) => void,
+): Promise<BulkImportStarted> {
+  if (!files.length) throw new Error("Nebyly vybrány žádné soubory.");
+  const signature = uploadSignature(files, autoClassify);
+
+  let uploadId = "";
+  let chunkSize = BULK_CHUNK_SIZE;
+  let receivedPerFile: number[][] = files.map(() => []);
+
+  // (1a) Pokus o navázání na přerušenou relaci pro tentýž výběr souborů.
+  const resume = loadResume(signature);
+  if (resume) {
+    try {
+      const statusRes = await fetch(
+        `/api/documents/bulk/session/${resume.uploadId}`,
+        { credentials: "include" },
+      );
+      if (statusRes.ok) {
+        const s = (await statusRes.json()) as {
+          chunkSize?: number;
+          files: {
+            name: string;
+            size: number;
+            lastModified?: number;
+            received: number[];
+          }[];
+        };
+        const matches =
+          s.files.length === files.length &&
+          s.files.every(
+            (f, i) =>
+              f.name === files[i].name &&
+              f.size === files[i].size &&
+              (f.lastModified ?? 0) === files[i].lastModified,
+          );
+        if (matches) {
+          uploadId = resume.uploadId;
+          chunkSize = s.chunkSize || resume.chunkSize;
+          receivedPerFile = s.files.map((f) => f.received ?? []);
+        }
+      }
+    } catch {
+      /* obnovení nevyšlo – založíme novou relaci níže */
+    }
+  }
+
+  // (1b) Není co obnovit → zahájení nové relace.
+  if (!uploadId) {
+    const initRes = await fetch("/api/documents/bulk/session", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: files.map((f) => ({
+          name: f.name,
+          size: f.size,
+          lastModified: f.lastModified,
+        })),
+        autoClassify,
+      }),
+    });
+    if (!initRes.ok) {
+      const e = await initRes.json().catch(() => ({}));
+      throw new Error(
+        e?.error || `Nepodařilo se zahájit nahrávání (${initRes.status}).`,
+      );
+    }
+    const init = (await initRes.json()) as {
+      uploadId: string;
+      chunkSize?: number;
+    };
+    uploadId = init.uploadId;
+    chunkSize = init.chunkSize || BULK_CHUNK_SIZE;
+    receivedPerFile = files.map(() => []);
+    saveResume(uploadId, signature, chunkSize);
+  }
+
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0) || 1;
+  let uploaded = 0;
+
+  // (2) Nahrání částí (přeskoč už přijaté; každou s opakováním při výpadku).
+  for (let fi = 0; fi < files.length; fi++) {
+    const file = files[fi];
+    const have = new Set(receivedPerFile[fi]);
+    const nChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+    for (let ci = 0; ci < nChunks; ci++) {
+      const start = ci * chunkSize;
+      const end = Math.min(file.size, start + chunkSize);
+      if (!have.has(ci)) {
+        try {
+          await postChunkWithRetry(uploadId, fi, ci, file.slice(start, end));
+        } catch (err) {
+          // Trvalá chyba (relace vypršela / neplatný požadavek) → zahodit, ať
+          // další pokus začne načisto. Dočasný výpadek relaci ponechá k obnovení.
+          if (err instanceof PermanentUploadError) clearResume();
+          throw err;
+        }
+      }
+      uploaded += end - start;
+      // 100 % necháme až na úspěšný commit.
+      onProgress?.(Math.min(99, Math.round((uploaded / totalBytes) * 100)));
+    }
+  }
+
+  // (3) Dokončení → server spojí části, založí job a vrátí jeho ID.
+  const commitRes = await fetch(
+    `/api/documents/bulk/session/${uploadId}/commit`,
+    { method: "POST", credentials: "include" },
+  );
+  if (!commitRes.ok) {
+    const e = await commitRes.json().catch(() => ({}));
+    // 4xx z commitu je trvalé (např. neúplný soubor) → relaci zahodit.
+    if (commitRes.status >= 400 && commitRes.status < 500) clearResume();
+    throw new Error(
+      e?.error || `Dokončení nahrávání selhalo (${commitRes.status}).`,
+    );
+  }
+  const data = (await commitRes.json()) as {
+    jobId: string;
+    autoClassify?: boolean;
+  };
+  clearResume();
+  onProgress?.(100);
+  return { jobId: data.jobId, autoClassify: data.autoClassify ?? false };
+}
+
 export interface Capabilities {
   aiChat: boolean;
   vision: boolean;
@@ -294,37 +527,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sessionToken }),
     }),
-  // Upload přes XHR (na rozdíl od fetch umí hlásit průběh nahrávání). Server
-  // vrátí jen ID jobu (202); vlastní zpracování běží na pozadí – stav se pak
-  // dotazuje přes bulkJob().
-  bulkImport: (form: FormData, onProgress?: (pct: number) => void) =>
-    new Promise<BulkImportStarted>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/documents/bulk");
-      xhr.withCredentials = true;
-      if (onProgress) {
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            onProgress(Math.round((e.loaded / e.total) * 100));
-          }
-        };
-      }
-      xhr.onload = () => {
-        let data: { jobId?: string; autoClassify?: boolean; error?: string } = {};
-        try {
-          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
-        } catch {
-          data = {};
-        }
-        if (xhr.status >= 200 && xhr.status < 300 && data.jobId) {
-          resolve({ jobId: data.jobId, autoClassify: data.autoClassify ?? false });
-        } else {
-          reject(new Error(data.error || `Nahrávání selhalo (chyba ${xhr.status}).`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Nahrávání selhalo (síťová chyba)."));
-      xhr.send(form);
-    }),
+  // Odolné nahrávání po částech (chunked / resumable). Soubor se nahraje po
+  // malých částech (~5 MB), každá jako samostatný krátký požadavek s opakováním
+  // při výpadku → nestálý internet shodí jen jednu část, ne celý soubor, a
+  // nevzniká obří požadavek padající na timeout proxy (chyba 502). Server po
+  // dokončení vrátí jen ID jobu (202); zpracování běží na pozadí (bulkJob()).
+  bulkImport: (
+    files: File[],
+    autoClassify: boolean,
+    onProgress?: (pct: number) => void,
+  ) => uploadBulkChunked(files, autoClassify, onProgress),
   bulkJob: (jobId: string) => req<BulkJobStatus>(`/documents/bulk/${jobId}`),
   queueStatus: () => req<QueueStatus>("/documents/queue-status"),
 
