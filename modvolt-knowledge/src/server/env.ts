@@ -106,6 +106,22 @@ export const env = {
     maxZipMb: num("MAX_ZIP_MB", 100),
   },
 
+  // Hromadný import na pozadí (nahrání mnoha souborů / ZIP archivů najednou bez
+  // ručního schvalování). Na rozdíl od dávky s review se ZIP nečte do paměti,
+  // ale streamovaně po položkách (yauzl) z dočasného souboru na disku, takže
+  // limity mohou být řádově vyšší i na malém stroji. Soubory se ukládají do
+  // úložiště a zařazují do indexovací fronty, která je zpracuje sekvenčně.
+  bulk: {
+    // Maximální velikost jednoho dokumentu (uvnitř ZIPu i nahraného přímo).
+    maxFileMb: num("BULK_MAX_FILE_MB", 200),
+    // Maximální velikost jednoho nahraného ZIP archivu.
+    maxArchiveMb: num("BULK_MAX_ARCHIVE_MB", 5120),
+    // Maximální počet souborů/archivů nahraných v JEDNOM požadavku.
+    maxArchives: num("BULK_MAX_ARCHIVES", 20),
+    // Bezpečnostní strop celkového počtu přijatých dokumentů na jeden import.
+    maxFiles: num("BULK_MAX_FILES", 20000),
+  },
+
   webSearch: {
     enabled: bool("WEB_SEARCH_ENABLED", false),
     provider: str("WEB_SEARCH_PROVIDER"),

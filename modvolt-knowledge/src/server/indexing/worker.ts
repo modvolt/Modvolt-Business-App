@@ -26,8 +26,11 @@ let timer: NodeJS.Timeout | null = null;
 export async function enqueueDocument(
   documentId: string,
   jobType = "index",
+  autoClassify = false,
 ): Promise<void> {
-  await db.insert(indexingJobs).values({ documentId, jobType, status: "queued" });
+  await db
+    .insert(indexingJobs)
+    .values({ documentId, jobType, status: "queued", autoClassify });
   triggerProcessing();
 }
 
@@ -49,7 +52,7 @@ async function triggerProcessing(): Promise<void> {
   try {
     let job = await claimNextJob();
     while (job) {
-      await processJob(job.id, job.documentId, job.jobType);
+      await processJob(job.id, job.documentId, job.jobType, job.autoClassify);
       job = await claimNextJob();
     }
   } catch (err) {
@@ -63,6 +66,7 @@ async function claimNextJob(): Promise<{
   id: string;
   documentId: string;
   jobType: string;
+  autoClassify: boolean;
 } | null> {
   // Atomické převzetí jednoho jobu.
   const res = await pool.query(
@@ -75,13 +79,14 @@ async function claimNextJob(): Promise<{
        LIMIT 1
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING id, document_id, job_type`,
+     RETURNING id, document_id, job_type, auto_classify`,
   );
   if (res.rows.length === 0) return null;
   return {
     id: res.rows[0].id,
     documentId: res.rows[0].document_id,
     jobType: res.rows[0].job_type,
+    autoClassify: res.rows[0].auto_classify === true,
   };
 }
 
@@ -89,6 +94,7 @@ export async function processJob(
   jobId: string,
   documentId: string,
   jobType: string,
+  autoClassify = false,
 ): Promise<void> {
   try {
     const docRows = await db
@@ -117,7 +123,16 @@ export async function processJob(
         const isPdf =
           doc.mimeType === "application/pdf" ||
           doc.originalFileName.toLowerCase().endsWith(".pdf");
-        if (isPdf && (await tryOcr(jobId, documentId, buffer))) {
+        if (
+          isPdf &&
+          (await tryOcr(
+            jobId,
+            documentId,
+            buffer,
+            autoClassify,
+            doc.originalFileName,
+          ))
+        ) {
           return;
         }
       }
@@ -127,7 +142,14 @@ export async function processJob(
       return;
     }
 
-    await indexFullText(jobId, documentId, extraction.fullText, false);
+    await indexFullText(
+      jobId,
+      documentId,
+      extraction.fullText,
+      false,
+      autoClassify,
+      doc.originalFileName,
+    );
   } catch (err) {
     logger.error(`Indexace dokumentu ${documentId} selhala`, String(err));
     await pool.query(
@@ -158,6 +180,8 @@ async function tryOcr(
   jobId: string,
   documentId: string,
   buffer: Buffer,
+  autoClassify: boolean,
+  fileName: string,
 ): Promise<boolean> {
   let result: Awaited<ReturnType<typeof ocrPdf>>;
   try {
@@ -171,7 +195,7 @@ async function tryOcr(
     logger.info(`OCR dokumentu ${documentId} nenašlo využitelný text.`);
     return false;
   }
-  await indexFullText(jobId, documentId, text, true);
+  await indexFullText(jobId, documentId, text, true, autoClassify, fileName);
   logger.info(
     `Dokument ${documentId} zpracován přes OCR (${result.pageCount} stran${
       result.truncated ? ", oříznuto" : ""
@@ -190,6 +214,8 @@ async function indexFullText(
   documentId: string,
   fullText: string,
   ocrApplied: boolean,
+  autoClassify = false,
+  fileName = "",
 ): Promise<void> {
   // Smaž staré chunky a embeddingy (reindex; embeddingy mají FK ON DELETE).
   await db.delete(documentChunks).where(eq(documentChunks.documentId, documentId));
@@ -224,19 +250,75 @@ async function indexFullText(
     await embedChunks(inserted);
   }
 
+  // Volitelná AI klasifikace na pozadí (hromadný import s přepínačem). Selhání
+  // klasifikace nesmí shodit indexaci – dokument se uloží i bez zařazení.
+  const classified = autoClassify
+    ? await classifyOnImport(documentId, fileName, fullText)
+    : null;
+
   await db
     .update(documents)
     .set({
       status: "indexed",
       textExtracted: true,
       ocrApplied,
+      ...(classified
+        ? {
+            documentType: classified.documentType,
+            categoryId: classified.categoryId,
+            title: classified.title,
+            description: classified.description,
+          }
+        : {}),
       indexedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(documents.id, documentId));
 
+  if (classified) {
+    const { setDocumentTags } = await import(
+      "../documents/document-service.js"
+    );
+    await setDocumentTags(documentId, classified.tagIds);
+  }
+
   await finishJob(jobId, "done");
-  logger.info(`Dokument ${documentId} zaindexován (${chunks.length} chunků).`);
+  logger.info(
+    `Dokument ${documentId} zaindexován (${chunks.length} chunků${
+      classified ? ", AI zařazeno" : ""
+    }).`,
+  );
+}
+
+/**
+ * Spustí AI klasifikaci dokumentu během hromadného importu. Načte aktuální
+ * kategorie/štítky a vrátí návrh (typ, kategorie, štítky, název, popis), nebo
+ * null při jakékoli chybě (import pak dokument uloží bez zařazení).
+ */
+async function classifyOnImport(
+  documentId: string,
+  fileName: string,
+  fullText: string,
+) {
+  try {
+    // Dynamický import drží AI moduly mimo statický graf workeru (lehčí start
+    // i testy); načtou se až při skutečném použití hromadného importu s AI.
+    const { classifyDocument, classificationAvailable } = await import(
+      "../ai/classification-service.js"
+    );
+    if (!classificationAvailable()) return null;
+    const { loadClassificationOptions } = await import(
+      "../ai/classification-options.js"
+    );
+    const { categories, tags } = await loadClassificationOptions();
+    return await classifyDocument({ text: fullText, fileName, categories, tags });
+  } catch (err) {
+    logger.warn(
+      `AI klasifikace dokumentu ${documentId} při importu selhala`,
+      String(err),
+    );
+    return null;
+  }
 }
 
 async function embedChunks(

@@ -43,6 +43,13 @@
       "when": 1782329976240,
       "tag": "0005_tranquil_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782403293222,
+      "tag": "0006_lazy_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

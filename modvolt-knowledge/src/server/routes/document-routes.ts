@@ -8,10 +8,15 @@ import {
   documents,
   documentVersions,
   documentTagLinks,
-  documentCategories,
-  documentTags,
+  indexingJobs,
 } from "../db/schema.js";
-import { asc } from "drizzle-orm";
+import { loadClassificationOptions } from "../ai/classification-options.js";
+import { streamZipEntries } from "../documents/zip-stream.js";
+import { randomUUID } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
+import { mkdirSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
 import {
   requireAuth,
   requireRole,
@@ -81,6 +86,27 @@ const zipUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.upload.maxZipMb * 1024 * 1024 },
 });
+
+// Hromadný import na pozadí: více ZIP archivů + volných souborů v jednom uploadu.
+// Kvůli velkým archivům (až GB) ukládá multer na DISK (ne do paměti) a archivy
+// se streamovaně rozbalí (viz zip-stream.ts). Limity jsou plně konfigurovatelné
+// přes env (BULK_*). Dočasné soubory se po zpracování mažou.
+const BULK_TMP_DIR = path.join(os.tmpdir(), "modvolt-bulk-uploads");
+mkdirSync(BULK_TMP_DIR, { recursive: true });
+const bulkUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, BULK_TMP_DIR),
+    filename: (_req, _file, cb) => cb(null, randomUUID()),
+  }),
+  limits: {
+    fileSize: env.bulk.maxArchiveMb * 1024 * 1024,
+    files: env.bulk.maxArchives,
+  },
+});
+
+function parseBoolFlag(value: unknown): boolean {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").toLowerCase());
+}
 
 /** Opraví kódování názvů nahraných souborů (req.file i req.files). */
 function fixUploadedFilenames(
@@ -160,6 +186,39 @@ documentRouter.get("/", async (req, res) => {
   res.json({
     documents: rows.map((r) => ({ ...r, tagIds: tagsByDoc.get(r.id) ?? [] })),
   });
+});
+
+// Stav fronty pro sledování průběhu hromadného importu na pozadí. Vrací počty
+// čekajících/zpracovávaných indexačních jobů a rozpad dokumentů podle stavu.
+// MUSÍ být registrováno před GET "/:id", jinak by ho zachytila parametrická
+// cesta a "queue-status" by se hledalo jako ID dokumentu.
+documentRouter.get("/queue-status", async (_req, res) => {
+  const [jobRows, docRows] = await Promise.all([
+    db
+      .select({
+        status: indexingJobs.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(indexingJobs)
+      .groupBy(indexingJobs.status),
+    db
+      .select({
+        status: documents.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(documents)
+      .groupBy(documents.status),
+  ]);
+
+  const jobs = { queued: 0, processing: 0 };
+  for (const row of jobRows) {
+    if (row.status === "queued") jobs.queued = row.count;
+    else if (row.status === "processing") jobs.processing = row.count;
+  }
+  const docs: Record<string, number> = {};
+  for (const row of docRows) docs[row.status] = row.count;
+
+  res.json({ jobs, docs });
 });
 
 documentRouter.get("/:id", async (req, res) => {
@@ -303,21 +362,6 @@ documentRouter.post(
   },
 );
 
-// Načte kanonické kategorie a štítky pro klasifikaci (id + název).
-async function loadClassificationOptions() {
-  const [cats, tgs] = await Promise.all([
-    db
-      .select({ id: documentCategories.id, name: documentCategories.name })
-      .from(documentCategories)
-      .orderBy(asc(documentCategories.name)),
-    db
-      .select({ id: documentTags.id, name: documentTags.name })
-      .from(documentTags)
-      .orderBy(asc(documentTags.name)),
-  ]);
-  return { categories: cats, tags: tgs };
-}
-
 // (0) Rozbalení ZIP: admin nahraje jeden .zip se složkou dokumentů. Server jej
 // rozbalí, vyfiltruje přijatelné typy a rozbalené položky uloží do krátkodobé
 // serverové relace importu (na disk). Klientovi vrátí jen lehká metadata
@@ -379,6 +423,112 @@ documentRouter.post(
       })),
       skipped: expanded.skipped,
     });
+  },
+);
+
+// Hromadný import NA POZADÍ: přijme více ZIP archivů i volných souborů v jednom
+// uploadu. Archivy se streamovaně rozbalí (nízká paměťová stopa), každý soubor
+// se založí přes createDocument (uloží do úložiště + zařadí do indexační fronty)
+// a worker jej na pozadí zaindexuje. BEZ manuální revize. Volitelně (autoClassify)
+// worker po extrakci spustí AI klasifikaci. Duplicity (shodný SHA-256) se přeskočí.
+documentRouter.post(
+  "/bulk",
+  requireWriteAccess,
+  bulkUpload.array("files", env.bulk.maxArchives),
+  fixUploadedFilenames,
+  async (req, res) => {
+    const uploaded = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!uploaded.length) {
+      return res.status(400).json({ error: "Chybí soubory k importu." });
+    }
+
+    const autoClassify =
+      parseBoolFlag(req.body?.autoClassify) && classificationAvailable();
+    const maxEntryBytes = env.bulk.maxFileMb * 1024 * 1024;
+    const maxFiles = env.bulk.maxFiles;
+
+    let accepted = 0;
+    let duplicates = 0;
+    let limitReached = false;
+    const skipped: { fileName: string; reason: string }[] = [];
+    const errors: { fileName: string; error: string }[] = [];
+
+    const ingest = async (fileName: string, buffer: Buffer): Promise<void> => {
+      if (accepted + duplicates >= maxFiles) {
+        limitReached = true;
+        return;
+      }
+      try {
+        await createDocument({
+          buffer,
+          originalFileName: fileName,
+          uploadedByUserId: req.currentUser!.id,
+          autoClassify,
+        });
+        accepted += 1;
+      } catch (err) {
+        if (err instanceof DuplicateDocumentError) {
+          duplicates += 1;
+          return;
+        }
+        errors.push({ fileName, error: (err as Error).message });
+      }
+    };
+
+    for (const file of uploaded) {
+      try {
+        if (isZipFile(file.originalname)) {
+          const result = await streamZipEntries(
+            file.path,
+            {
+              maxEntryBytes,
+              // Jakmile je dosažen limit počtu souborů, přestaň rozbalovat
+              // zbývající položky (šetří CPU i paměť u velkých archivů).
+              shouldStop: () => accepted + duplicates >= maxFiles,
+            },
+            async (entry) => {
+              await ingest(entry.fileName, entry.buffer);
+            },
+          );
+          skipped.push(...result.skipped);
+        } else if (isAcceptedDocument(file.originalname)) {
+          // Kontrola velikosti z metadat (file.size) PŘED načtením do paměti –
+          // multer limit připouští až archivní velikost (GB), takže velký volný
+          // soubor se nesmí celý nabufferovat jen proto, abychom ho zahodili.
+          if (file.size > maxEntryBytes) {
+            skipped.push({
+              fileName: file.originalname,
+              reason: "Soubor je příliš velký.",
+            });
+          } else {
+            const buffer = await readFile(file.path);
+            await ingest(file.originalname, buffer);
+          }
+        } else {
+          skipped.push({
+            fileName: file.originalname,
+            reason: "Nepodporovaný typ souboru.",
+          });
+        }
+      } catch (err) {
+        errors.push({
+          fileName: file.originalname,
+          error: (err as Error).message,
+        });
+      } finally {
+        await rm(file.path, { force: true }).catch(() => {});
+      }
+    }
+
+    await audit(req, "bulk_import", "document", undefined, {
+      accepted,
+      duplicates,
+      skipped: skipped.length,
+      errors: errors.length,
+      autoClassify,
+    });
+
+    res.json({ accepted, duplicates, limitReached, autoClassify, skipped, errors });
   },
 );
 

@@ -9,6 +9,8 @@ import {
   type ReclassifyAnalyzeItem,
   type ReclassifyCommitResult,
   type ReclassifyFields,
+  type BulkImportResult,
+  type QueueStatus,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.js";
 import { DOCUMENT_TYPES } from "../../shared/types.js";
@@ -27,6 +29,7 @@ export function DocumentsPage() {
   const [error, setError] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [reclassifyIds, setReclassifyIds] = useState<string[] | null>(null);
 
@@ -112,15 +115,29 @@ export function DocumentsPage() {
               onClick={() => {
                 setShowBatch((s) => !s);
                 setShowUpload(false);
+                setShowBulk(false);
               }}
             >
               {showBatch ? "Zavřít" : "Hromadný import"}
+            </button>
+            <button
+              className="secondary"
+              style={{ flex: "0 0 auto" }}
+              onClick={() => {
+                setShowBulk((s) => !s);
+                setShowUpload(false);
+                setShowBatch(false);
+              }}
+              title="Nahrát mnoho souborů a ZIP archivů najednou, zpracují se na pozadí bez revize"
+            >
+              {showBulk ? "Zavřít" : "Import na pozadí"}
             </button>
             <button
               style={{ flex: "0 0 auto" }}
               onClick={() => {
                 setShowUpload((s) => !s);
                 setShowBatch(false);
+                setShowBulk(false);
               }}
             >
               {showUpload ? "Zavřít" : "Nahrát dokument"}
@@ -148,6 +165,14 @@ export function DocumentsPage() {
           tags={tags}
           onDone={() => load()}
           onClose={() => setShowBatch(false)}
+        />
+      )}
+
+      {showBulk && canWrite && (
+        <BulkImport
+          aiAvailable={capabilities.aiChat}
+          onDone={() => load()}
+          onClose={() => setShowBulk(false)}
         />
       )}
 
@@ -1319,4 +1344,243 @@ function ReclassifyStatusBadge({ status }: { status: ReclassifyStatus }) {
   };
   const { label, cls } = map[status];
   return <span className={`badge ${cls}`}>{label}</span>;
+}
+
+// Hromadný import na pozadí: nahraje více souborů i ZIP archivů najednou. Soubory
+// se založí a zaindexují na pozadí (bez manuální revize). Volitelně lze zapnout
+// AI klasifikaci. Po odeslání zobrazí souhrn a průběžně sleduje stav fronty.
+function BulkImport({
+  aiAvailable,
+  onDone,
+  onClose,
+}: {
+  aiAvailable: boolean;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [autoClassify, setAutoClassify] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [result, setResult] = useState<BulkImportResult | null>(null);
+  const [queue, setQueue] = useState<QueueStatus | null>(null);
+
+  // Po odeslání průběžně dotazuj stav fronty, dokud něco zbývá ke zpracování.
+  useEffect(() => {
+    if (!result) return;
+    let active = true;
+    const tick = async () => {
+      try {
+        const status = await api.queueStatus();
+        if (!active) return;
+        setQueue(status);
+      } catch {
+        /* stav fronty není kritický – tichý neúspěch */
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 4000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [result]);
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    setFiles((prev) => [...prev, ...Array.from(list)]);
+  };
+
+  const removeFile = (idx: number) =>
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+
+  const submit = async () => {
+    if (!files.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      for (const f of files) form.append("files", f);
+      if (autoClassify && aiAvailable) form.append("autoClassify", "true");
+      const res = await api.bulkImport(form);
+      setResult(res);
+      setFiles([]);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  const pending = queue ? queue.jobs.queued + queue.jobs.processing : 0;
+
+  return (
+    <div className="card">
+      <div className="flex-between">
+        <h3 style={{ marginTop: 0 }}>Import na pozadí</h3>
+        <button className="ghost" style={{ flex: "0 0 auto" }} onClick={onClose}>
+          Zavřít
+        </button>
+      </div>
+
+      <p className="muted" style={{ marginTop: 0 }}>
+        Nahrajte více souborů i ZIP archivů najednou. Dokumenty se zpracují na
+        pozadí bez manuální revize. Duplicity (stejný obsah) se přeskočí.
+      </p>
+
+      {error && <div className="error">{error}</div>}
+
+      <div
+        className={`card ${dragOver ? "active" : ""}`}
+        style={{
+          textAlign: "center",
+          padding: 24,
+          border: "1px dashed var(--border, #ccc)",
+          background: dragOver ? "rgba(0,0,0,0.03)" : undefined,
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          addFiles(e.dataTransfer.files);
+        }}
+      >
+        <p style={{ margin: "0 0 8px" }}>
+          Přetáhněte sem soubory nebo ZIP archivy
+        </p>
+        <input
+          type="file"
+          multiple
+          onChange={(e) => {
+            addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </div>
+
+      {files.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ marginBottom: 6 }}>
+            Vybráno {files.length} souborů ({formatBytes(totalBytes)})
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 180, overflow: "auto" }}>
+            {files.map((f, i) => (
+              <li key={`${f.name}-${i}`}>
+                {f.name}{" "}
+                <span className="muted">({formatBytes(f.size)})</span>{" "}
+                <button
+                  className="ghost"
+                  style={{ flex: "0 0 auto" }}
+                  onClick={() => removeFile(i)}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            opacity: aiAvailable ? 1 : 0.5,
+          }}
+          title={
+            aiAvailable
+              ? "AI po extrakci textu navrhne typ, kategorii, štítky, název a popis"
+              : "AI klasifikace není dostupná (chybí jazykový model)"
+          }
+        >
+          <input
+            type="checkbox"
+            checked={autoClassify && aiAvailable}
+            disabled={!aiAvailable}
+            onChange={(e) => setAutoClassify(e.target.checked)}
+          />
+          Automaticky zařadit pomocí AI
+        </label>
+        <button
+          style={{ flex: "0 0 auto", marginLeft: "auto" }}
+          disabled={busy || files.length === 0}
+          onClick={submit}
+        >
+          {busy ? "Nahrávám…" : "Spustit import"}
+        </button>
+      </div>
+
+      {result && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <strong>Import zařazen do fronty</strong>
+          <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+            <li>Přijato ke zpracování: {result.accepted}</li>
+            <li>Přeskočeno (duplicity): {result.duplicates}</li>
+            {result.skipped.length > 0 && (
+              <li>Přeskočeno (nepodporované/velké): {result.skipped.length}</li>
+            )}
+            {result.errors.length > 0 && (
+              <li className="error">Chyby: {result.errors.length}</li>
+            )}
+            {result.limitReached && (
+              <li className="error">
+                Dosažen limit počtu souborů – část souborů nebyla zpracována.
+              </li>
+            )}
+            {result.autoClassify && <li>AI klasifikace: zapnuta</li>}
+          </ul>
+
+          {queue && (
+            <div className="muted" style={{ marginTop: 8 }}>
+              {pending > 0
+                ? `Zpracovává se na pozadí: ${queue.jobs.processing} běží, ${queue.jobs.queued} čeká…`
+                : "Fronta je prázdná – vše zpracováno."}
+            </div>
+          )}
+
+          {result.skipped.length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary>Přeskočené soubory ({result.skipped.length})</summary>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                {result.skipped.map((s, i) => (
+                  <li key={i}>
+                    {s.fileName} — <span className="muted">{s.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {result.errors.length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary>Chyby ({result.errors.length})</summary>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                {result.errors.map((s, i) => (
+                  <li key={i}>
+                    {s.fileName} — <span className="error">{s.error}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

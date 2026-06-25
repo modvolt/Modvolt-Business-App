@@ -136,6 +136,8 @@ export interface CreateDocumentInput {
   replaceDocumentId?: string;
   /** Poznámka ke změně (uloží se k archivované verzi). */
   changeNote?: string;
+  /** Hromadný import: nech worker po extrakci spustit AI klasifikaci. */
+  autoClassify?: boolean;
 }
 
 /** Vrátí existující dokument se stejným SHA-256, pokud existuje. */
@@ -207,7 +209,7 @@ export async function createDocument(input: CreateDocumentInput) {
     await setDocumentTags(doc.id, input.tagIds);
   }
 
-  await enqueueDocument(doc.id, "index");
+  await enqueueDocument(doc.id, "index", input.autoClassify ?? false);
   return doc;
 }
 

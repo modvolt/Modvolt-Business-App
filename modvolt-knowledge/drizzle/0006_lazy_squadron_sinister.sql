@@ -1,0 +1,1 @@
+ALTER TABLE "indexing_jobs" ADD COLUMN "auto_classify" boolean DEFAULT false NOT NULL;

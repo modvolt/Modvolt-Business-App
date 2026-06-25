@@ -150,6 +150,20 @@ export interface ZipExpandResult {
   skipped: { fileName: string; reason: string }[];
 }
 
+export interface BulkImportResult {
+  accepted: number;
+  duplicates: number;
+  limitReached: boolean;
+  autoClassify: boolean;
+  skipped: { fileName: string; reason: string }[];
+  errors: { fileName: string; error: string }[];
+}
+
+export interface QueueStatus {
+  jobs: { queued: number; processing: number };
+  docs: Record<string, number>;
+}
+
 export interface SearchFilters {
   sourceMode?: SourceMode;
   categoryId?: string;
@@ -268,6 +282,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sessionToken }),
     }),
+  bulkImport: (form: FormData) =>
+    req<BulkImportResult>("/documents/bulk", { method: "POST", body: form }),
+  queueStatus: () => req<QueueStatus>("/documents/queue-status"),
 
   // Search & AI
   search: (query: string, filters: SearchFilters = {}) =>

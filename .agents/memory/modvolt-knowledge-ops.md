@@ -72,6 +72,16 @@ Czech filenames came out garbled in the document list ("Modulární" → "Modul�
 ## Docker build itself is clean — `npm ci` failures are server-side
 The Dockerfile `npm ci` reproduces successfully inside the exact `node:24-slim` base. So when Coolify/Hetzner deploys fail at `npm ci`, suspect: (1) Replit proxy URLs in lockfile [see above], (2) ENOSPC disk full on Hetzner, (3) npm registry unreachable. The install step dumps npm debug-log + `df -h` on failure. Base must stay `node:24-slim` (npm 11); `node:22-slim` ships npm 10.9.8 with a genuine "Exit handler never called!" bug. No build toolchain needed (no `apt-get python3 make g++`).
 
+## Express route order: static paths MUST precede `/:id`
+`documentRouter` matches in registration order. A new static route like
+`GET /documents/queue-status` registered AFTER `GET /documents/:id` is silently
+captured by `:id` (treated as a document id) and never runs. Register all static
+sub-paths (`/queue-status`, `/batch/*`, etc.) BEFORE the `:id` param route.
+**Why:** the bulk-import queue-status endpoint initially sat below `/:id` and
+client polling got a 404/doc-lookup instead of queue data.
+**How to apply:** when adding any `GET /documents/<word>` route, place it above
+the `/:id` handler (or constrain `:id` to a UUID pattern).
+
 ## Testing AI citations must avoid the ČSN lock
 A query containing norm keywords (`proudový chránič`, `RCD`, …) forces `csn_only` mode, which filters retrieval to norm/standard document types. An `internal_procedure` test doc is then excluded → 0 chunks → ungrounded fallback answer (correct behavior, not a bug).
 **How to apply:** To prove the citation-grounding happy path, use a non-norm query against the uploaded doc's unique content (e.g. a magic constant string).

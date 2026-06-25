@@ -280,6 +280,9 @@ export const indexingJobs = pgTable("indexing_jobs", {
     .references(() => documents.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("queued"),
   jobType: text("job_type").notNull().default("reindex"),
+  // Pokud true, worker po extrakci textu spustí AI klasifikaci (typ/kategorie/
+  // název/štítky) a výsledek uloží do dokumentu. Používá hromadný import (2C).
+  autoClassify: boolean("auto_classify").notNull().default(false),
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   startedAt: timestamp("started_at", { withTimezone: true }),
