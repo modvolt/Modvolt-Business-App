@@ -69,9 +69,14 @@ services:
       # Fotografie
       MAX_IMAGE_UPLOAD_MB: ${MAX_IMAGE_UPLOAD_MB:-}
       STRIP_IMAGE_EXIF: ${STRIP_IMAGE_EXIF:-}
-      # Hromadný import
+      # Hromadný import (manuální dávka s revizí)
       MAX_BATCH_FILES: ${MAX_BATCH_FILES:-}
       MAX_ZIP_MB: ${MAX_ZIP_MB:-}
+      # Hromadný import na pozadí (pevné hodnoty – netřeba nastavovat v Coolify UI)
+      BULK_MAX_FILE_MB: 200
+      BULK_MAX_ARCHIVE_MB: 5120
+      BULK_MAX_ARCHIVES: 20
+      BULK_MAX_FILES: 20000
       # Web search (volitelné)
       WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-}
       WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-}
