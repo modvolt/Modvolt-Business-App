@@ -28,8 +28,10 @@ export async function streamZipEntries(
   zipPath: string,
   opts: { maxEntryBytes: number; shouldStop?: () => boolean },
   onEntry: (entry: StreamedZipEntry) => Promise<void>,
-): Promise<{ skipped: SkippedStreamEntry[] }> {
+): Promise<{ skipped: SkippedStreamEntry[]; stopped: boolean }> {
   const skipped: SkippedStreamEntry[] = [];
+  // true = streamování bylo ukončeno předčasně přes shouldStop (zbyly položky).
+  let stopped = false;
 
   await new Promise<void>((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (openErr, zip) => {
@@ -44,6 +46,7 @@ export async function streamZipEntries(
       zip.on("entry", (entry: yauzl.Entry) => {
         // Volající může předčasně zastavit (např. dosažen limit počtu souborů).
         if (opts.shouldStop?.()) {
+          stopped = true;
           zip.close();
           resolve();
           return;
@@ -121,5 +124,24 @@ export async function streamZipEntries(
     });
   });
 
-  return { skipped };
+  return { skipped, stopped };
+}
+
+/**
+ * Spočítá počet položek v ZIP archivu z centrálního adresáře (levné – nečte
+ * obsah). Slouží k odhadu celkového počtu souborů pro ukazatel průběhu.
+ * Při chybě vrací 0 (průběh se pak zobrazí bez procent).
+ */
+export async function countZipEntries(zipPath: string): Promise<number> {
+  return new Promise<number>((resolve) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
+      if (err || !zip) {
+        resolve(0);
+        return;
+      }
+      const total = zip.entryCount;
+      zip.close();
+      resolve(total);
+    });
+  });
 }

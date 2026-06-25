@@ -3,6 +3,7 @@ import { env, validateEnv } from "./env.js";
 import { logger } from "./lib/logger.js";
 import { runMigrations } from "./db/migrate.js";
 import { startIndexingWorker } from "./indexing/worker.js";
+import { startBulkImportWorker } from "./indexing/bulk-import-worker.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -64,6 +65,7 @@ async function main() {
   }
 
   startIndexingWorker();
+  startBulkImportWorker();
 
   app.listen(env.port, "0.0.0.0", () => {
     logger.info(`Modvolt Knowledge běží na portu ${env.port} (${env.nodeEnv}).`);

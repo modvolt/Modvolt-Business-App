@@ -80,6 +80,45 @@ test("streamZipEntries ignoruje skryté soubory a __MACOSX", async () => {
   }
 });
 
+test("streamZipEntries hlásí stopped=false při běžném dokončení", async () => {
+  const zipPath = await makeZip([{ name: "a.txt", content: Buffer.from("x") }]);
+  try {
+    const { stopped, skipped } = await streamZipEntries(
+      zipPath,
+      { maxEntryBytes: 1024 * 1024 },
+      async () => {},
+    );
+    assert.equal(stopped, false);
+    assert.equal(skipped.length, 0);
+  } finally {
+    await rm(zipPath, { force: true });
+  }
+});
+
+test("streamZipEntries hlásí stopped=true při předčasném zastavení (limit)", async () => {
+  const zipPath = await makeZip([
+    { name: "a.txt", content: Buffer.from("1") },
+    { name: "b.txt", content: Buffer.from("2") },
+    { name: "c.txt", content: Buffer.from("3") },
+  ]);
+  try {
+    const entries: string[] = [];
+    // shouldStop se aktivuje po prvním přijatém souboru – zbytek archivu se
+    // nezpracuje a metoda musí ohlásit předčasné zastavení.
+    const { stopped } = await streamZipEntries(
+      zipPath,
+      { maxEntryBytes: 1024 * 1024, shouldStop: () => entries.length >= 1 },
+      async (e) => {
+        entries.push(e.fileName);
+      },
+    );
+    assert.equal(entries.length, 1);
+    assert.equal(stopped, true);
+  } finally {
+    await rm(zipPath, { force: true });
+  }
+});
+
 test("streamZipEntries přeskočí položku nad limitem velikosti", async () => {
   const big = Buffer.alloc(2048, 65);
   const zipPath = await makeZip([

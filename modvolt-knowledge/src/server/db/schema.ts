@@ -291,6 +291,35 @@ export const indexingJobs = pgTable("indexing_jobs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Hromadný import na pozadí (1A): celý upload se uloží na disk, založí se zde
+// job a okamžitě se vrátí odpověď; samostatný worker pak archivy rozbalí a
+// soubory založí, aby dlouhé zpracování neshodilo HTTP požadavek na reverzní
+// proxy (chyba 502). Počítadla slouží k zobrazení průběhu v UI.
+export const bulkImportJobs = pgTable("bulk_import_jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  status: text("status").notNull().default("queued"), // queued|processing|completed|failed
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  autoClassify: boolean("auto_classify").notNull().default(false),
+  // [{ path, originalName }] – dočasné soubory na disku, worker je po zpracování maže.
+  sources: jsonb("sources").notNull(),
+  totalFiles: integer("total_files").notNull().default(0),
+  processedFiles: integer("processed_files").notNull().default(0),
+  accepted: integer("accepted").notNull().default(0),
+  duplicates: integer("duplicates").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  limitReached: boolean("limit_reached").notNull().default(false),
+  skipped: jsonb("skipped"), // [{ fileName, reason }]
+  errors: jsonb("errors"), // [{ fileName, error }]
+  lastError: text("last_error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const webSearchCache = pgTable("web_search_cache", {
   id: uuid("id").primaryKey().defaultRandom(),
   query: text("query").notNull(),

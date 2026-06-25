@@ -9,8 +9,7 @@ import {
   type ReclassifyAnalyzeItem,
   type ReclassifyCommitResult,
   type ReclassifyFields,
-  type BulkImportResult,
-  type QueueStatus,
+  type BulkJobStatus,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.js";
 import { DOCUMENT_TYPES } from "../../shared/types.js";
@@ -1363,29 +1362,39 @@ function BulkImport({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [result, setResult] = useState<BulkImportResult | null>(null);
-  const [queue, setQueue] = useState<QueueStatus | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [job, setJob] = useState<BulkJobStatus | null>(null);
 
-  // Po odeslání průběžně dotazuj stav fronty, dokud něco zbývá ke zpracování.
+  // Po nahrání souborů (máme jobId) průběžně dotazuj stav zpracování na pozadí,
+  // dokud import neskončí (completed/failed).
   useEffect(() => {
-    if (!result) return;
+    if (!jobId) return;
     let active = true;
     const tick = async () => {
       try {
-        const status = await api.queueStatus();
+        const status = await api.bulkJob(jobId);
         if (!active) return;
-        setQueue(status);
+        setJob(status);
+        if (status.status === "completed" || status.status === "failed") {
+          onDone();
+          return false;
+        }
       } catch {
-        /* stav fronty není kritický – tichý neúspěch */
+        /* dočasný výpadek dotazu není kritický – zkusí se znovu */
       }
+      return true;
     };
-    tick();
-    const timer = setInterval(tick, 4000);
+    void tick();
+    const timer = setInterval(async () => {
+      const keepGoing = await tick();
+      if (keepGoing === false) clearInterval(timer);
+    }, 1500);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [result]);
+  }, [jobId]);
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
@@ -1399,14 +1408,14 @@ function BulkImport({
     if (!files.length) return;
     setBusy(true);
     setError("");
+    setUploadPct(0);
     try {
       const form = new FormData();
       for (const f of files) form.append("files", f);
       if (autoClassify && aiAvailable) form.append("autoClassify", "true");
-      const res = await api.bulkImport(form);
-      setResult(res);
+      const res = await api.bulkImport(form, setUploadPct);
+      setJobId(res.jobId);
       setFiles([]);
-      onDone();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1415,7 +1424,11 @@ function BulkImport({
   };
 
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-  const pending = queue ? queue.jobs.queued + queue.jobs.processing : 0;
+  const processPct =
+    job && job.totalFiles > 0
+      ? Math.min(100, Math.round((job.processedFiles / job.totalFiles) * 100))
+      : 0;
+  const finished = job?.status === "completed" || job?.status === "failed";
 
   return (
     <div className="card">
@@ -1515,43 +1528,72 @@ function BulkImport({
           disabled={busy || files.length === 0}
           onClick={submit}
         >
-          {busy ? "Nahrávám…" : "Spustit import"}
+          {busy
+            ? uploadPct > 0
+              ? `Nahrávám… ${uploadPct} %`
+              : "Nahrávám…"
+            : "Spustit import"}
         </button>
       </div>
 
-      {result && (
+      {busy && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ marginBottom: 4 }}>
+            Nahrávání souborů na server… {uploadPct} %
+          </div>
+          <ProgressBar pct={uploadPct} />
+        </div>
+      )}
+
+      {job && (
         <div className="card" style={{ marginTop: 12 }}>
-          <strong>Import zařazen do fronty</strong>
+          <strong>
+            {job.status === "completed"
+              ? "Import dokončen"
+              : job.status === "failed"
+                ? "Import selhal"
+                : "Zpracovává se na pozadí…"}
+          </strong>
+
+          {!finished && (
+            <div style={{ marginTop: 8 }}>
+              <div className="muted" style={{ marginBottom: 4 }}>
+                {job.totalFiles > 0
+                  ? `Zpracováno ${job.processedFiles} z ${job.totalFiles} souborů (${processPct} %)`
+                  : `Zpracováno ${job.processedFiles} souborů…`}
+              </div>
+              {job.totalFiles > 0 && <ProgressBar pct={processPct} />}
+            </div>
+          )}
+
           <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-            <li>Přijato ke zpracování: {result.accepted}</li>
-            <li>Přeskočeno (duplicity): {result.duplicates}</li>
-            {result.skipped.length > 0 && (
-              <li>Přeskočeno (nepodporované/velké): {result.skipped.length}</li>
+            <li>Přijato ke zpracování: {job.accepted}</li>
+            <li>Přeskočeno (duplicity): {job.duplicates}</li>
+            {job.skippedCount > 0 && (
+              <li>Přeskočeno (nepodporované/velké): {job.skippedCount}</li>
             )}
-            {result.errors.length > 0 && (
-              <li className="error">Chyby: {result.errors.length}</li>
+            {job.errorCount > 0 && (
+              <li className="error">Chyby: {job.errorCount}</li>
             )}
-            {result.limitReached && (
+            {job.limitReached && (
               <li className="error">
                 Dosažen limit počtu souborů – část souborů nebyla zpracována.
               </li>
             )}
-            {result.autoClassify && <li>AI klasifikace: zapnuta</li>}
+            {job.autoClassify && <li>AI klasifikace: zapnuta</li>}
           </ul>
 
-          {queue && (
-            <div className="muted" style={{ marginTop: 8 }}>
-              {pending > 0
-                ? `Zpracovává se na pozadí: ${queue.jobs.processing} běží, ${queue.jobs.queued} čeká…`
-                : "Fronta je prázdná – vše zpracováno."}
+          {job.status === "failed" && job.lastError && (
+            <div className="error" style={{ marginTop: 8 }}>
+              {job.lastError}
             </div>
           )}
 
-          {result.skipped.length > 0 && (
+          {job.skipped.length > 0 && (
             <details style={{ marginTop: 8 }}>
-              <summary>Přeskočené soubory ({result.skipped.length})</summary>
+              <summary>Přeskočené soubory ({job.skipped.length})</summary>
               <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {result.skipped.map((s, i) => (
+                {job.skipped.map((s, i) => (
                   <li key={i}>
                     {s.fileName} — <span className="muted">{s.reason}</span>
                   </li>
@@ -1560,11 +1602,11 @@ function BulkImport({
             </details>
           )}
 
-          {result.errors.length > 0 && (
+          {job.errors.length > 0 && (
             <details style={{ marginTop: 8 }}>
-              <summary>Chyby ({result.errors.length})</summary>
+              <summary>Chyby ({job.errors.length})</summary>
               <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {result.errors.map((s, i) => (
+                {job.errors.map((s, i) => (
                   <li key={i}>
                     {s.fileName} — <span className="error">{s.error}</span>
                   </li>
@@ -1574,6 +1616,28 @@ function BulkImport({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProgressBar({ pct }: { pct: number }) {
+  return (
+    <div
+      style={{
+        height: 8,
+        borderRadius: 4,
+        background: "var(--border, #e2e2e2)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          height: "100%",
+          width: `${Math.max(0, Math.min(100, pct))}%`,
+          background: "var(--accent, #2563eb)",
+          transition: "width 0.3s ease",
+        }}
+      />
     </div>
   );
 }

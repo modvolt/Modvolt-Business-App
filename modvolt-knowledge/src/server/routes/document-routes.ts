@@ -9,14 +9,14 @@ import {
   documentVersions,
   documentTagLinks,
   indexingJobs,
+  bulkImportJobs,
 } from "../db/schema.js";
 import { loadClassificationOptions } from "../ai/classification-options.js";
-import { streamZipEntries } from "../documents/zip-stream.js";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import {
   requireAuth,
   requireRole,
@@ -57,6 +57,7 @@ import {
 } from "./batch-commit.js";
 import { getDownloadUrl, getObjectBuffer } from "../storage/s3.js";
 import { enqueueDocument } from "../indexing/worker.js";
+import { triggerBulkImport } from "../indexing/bulk-import-worker.js";
 import { env } from "../env.js";
 import { audit } from "../lib/audit.js";
 import type { DocumentType, DocumentVisibility } from "../../shared/types.js";
@@ -426,11 +427,13 @@ documentRouter.post(
   },
 );
 
-// Hromadný import NA POZADÍ: přijme více ZIP archivů i volných souborů v jednom
-// uploadu. Archivy se streamovaně rozbalí (nízká paměťová stopa), každý soubor
-// se založí přes createDocument (uloží do úložiště + zařadí do indexační fronty)
-// a worker jej na pozadí zaindexuje. BEZ manuální revize. Volitelně (autoClassify)
-// worker po extrakci spustí AI klasifikaci. Duplicity (shodný SHA-256) se přeskočí.
+// Hromadný import NA POZADÍ (1A): upload (ZIP archivy i volné soubory) se uloží
+// na disk, založí se job a HNED se vrátí jeho ID (202). Vlastní rozbalení
+// archivů, založení dokumentů a zařazení do indexační fronty obstará samostatný
+// worker (bulk-import-worker) – dlouhé zpracování velkých archivů tak neshodí
+// HTTP požadavek na reverzní proxy (chyba 502). BEZ manuální revize. Volitelně
+// (autoClassify) worker po extrakci spustí AI klasifikaci. Duplicity (shodný
+// SHA-256) se přeskočí. Dočasné soubory maže worker po dokončení.
 documentRouter.post(
   "/bulk",
   requireWriteAccess,
@@ -444,93 +447,76 @@ documentRouter.post(
 
     const autoClassify =
       parseBoolFlag(req.body?.autoClassify) && classificationAvailable();
-    const maxEntryBytes = env.bulk.maxFileMb * 1024 * 1024;
-    const maxFiles = env.bulk.maxFiles;
 
-    let accepted = 0;
-    let duplicates = 0;
-    let limitReached = false;
-    const skipped: { fileName: string; reason: string }[] = [];
-    const errors: { fileName: string; error: string }[] = [];
+    // Worker pracuje z dočasných souborů na disku (NEmažeme je tady).
+    const sources = uploaded.map((file) => ({
+      path: file.path,
+      originalName: file.originalname,
+    }));
 
-    const ingest = async (fileName: string, buffer: Buffer): Promise<void> => {
-      if (accepted + duplicates >= maxFiles) {
-        limitReached = true;
-        return;
-      }
-      try {
-        await createDocument({
-          buffer,
-          originalFileName: fileName,
-          uploadedByUserId: req.currentUser!.id,
+    try {
+      const [job] = await db
+        .insert(bulkImportJobs)
+        .values({
+          status: "queued",
+          createdByUserId: req.currentUser!.id,
           autoClassify,
-        });
-        accepted += 1;
-      } catch (err) {
-        if (err instanceof DuplicateDocumentError) {
-          duplicates += 1;
-          return;
-        }
-        errors.push({ fileName, error: (err as Error).message });
-      }
-    };
+          sources,
+        })
+        .returning({ id: bulkImportJobs.id });
 
-    for (const file of uploaded) {
-      try {
-        if (isZipFile(file.originalname)) {
-          const result = await streamZipEntries(
-            file.path,
-            {
-              maxEntryBytes,
-              // Jakmile je dosažen limit počtu souborů, přestaň rozbalovat
-              // zbývající položky (šetří CPU i paměť u velkých archivů).
-              shouldStop: () => accepted + duplicates >= maxFiles,
-            },
-            async (entry) => {
-              await ingest(entry.fileName, entry.buffer);
-            },
-          );
-          skipped.push(...result.skipped);
-        } else if (isAcceptedDocument(file.originalname)) {
-          // Kontrola velikosti z metadat (file.size) PŘED načtením do paměti –
-          // multer limit připouští až archivní velikost (GB), takže velký volný
-          // soubor se nesmí celý nabufferovat jen proto, abychom ho zahodili.
-          if (file.size > maxEntryBytes) {
-            skipped.push({
-              fileName: file.originalname,
-              reason: "Soubor je příliš velký.",
-            });
-          } else {
-            const buffer = await readFile(file.path);
-            await ingest(file.originalname, buffer);
-          }
-        } else {
-          skipped.push({
-            fileName: file.originalname,
-            reason: "Nepodporovaný typ souboru.",
-          });
-        }
-      } catch (err) {
-        errors.push({
-          fileName: file.originalname,
-          error: (err as Error).message,
-        });
-      } finally {
-        await rm(file.path, { force: true }).catch(() => {});
-      }
+      await audit(req, "bulk_import", "document", undefined, {
+        archives: uploaded.length,
+        autoClassify,
+        jobId: job.id,
+      });
+
+      triggerBulkImport();
+      return res.status(202).json({ jobId: job.id, autoClassify });
+    } catch (err) {
+      // Job se nepodařilo založit – uklidíme dočasné soubory, jinak by zůstaly
+      // ležet v /tmp bez vlastníka.
+      await Promise.all(
+        sources.map((s) => rm(s.path, { force: true }).catch(() => {})),
+      );
+      return res
+        .status(500)
+        .json({ error: "Hromadný import se nepodařilo založit." });
     }
-
-    await audit(req, "bulk_import", "document", undefined, {
-      accepted,
-      duplicates,
-      skipped: skipped.length,
-      errors: errors.length,
-      autoClassify,
-    });
-
-    res.json({ accepted, duplicates, limitReached, autoClassify, skipped, errors });
   },
 );
+
+// Stav konkrétního hromadného importu – klient jej průběžně dotazuje a zobrazuje
+// počty zpracovaných souborů. Dvousegmentová cesta, takže ji nestíní GET /:id.
+documentRouter.get("/bulk/:jobId", async (req, res) => {
+  const rows = await db
+    .select()
+    .from(bulkImportJobs)
+    .where(eq(bulkImportJobs.id, req.params.jobId))
+    .limit(1);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: "Import nenalezen." });
+  // Stav importu smí číst jen jeho zakladatel nebo admin (ochrana proti IDOR).
+  const isAdmin = req.currentUser!.role === "admin";
+  if (!isAdmin && job.createdByUserId !== req.currentUser!.id) {
+    return res.status(403).json({ error: "K tomuto importu nemáte přístup." });
+  }
+  return res.json({
+    id: job.id,
+    status: job.status,
+    autoClassify: job.autoClassify,
+    totalFiles: job.totalFiles,
+    processedFiles: job.processedFiles,
+    accepted: job.accepted,
+    duplicates: job.duplicates,
+    skippedCount: job.skippedCount,
+    errorCount: job.errorCount,
+    limitReached: job.limitReached,
+    skipped: job.skipped ?? [],
+    errors: job.errors ?? [],
+    lastError: job.lastError,
+  });
+});
 
 // (a) Hromadná analýza: přijme více souborů, extrahuje text, vrátí pro každý
 // soubor AI návrh klasifikace + detekci duplicit. Každý soubor se zpracuje

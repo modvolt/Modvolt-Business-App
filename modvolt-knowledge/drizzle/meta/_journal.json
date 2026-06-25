@@ -50,6 +50,13 @@
       "when": 1782403293222,
       "tag": "0006_lazy_squadron_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782406873459,
+      "tag": "0007_wakeful_deadpool",
+      "breakpoints": true
     }
   ]
 }
